@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reflection Buddy</title>
+
+  <!--
+    Tailwind CSS — Play CDN (no build step required for local development).
+    For production: run `npx tailwindcss -o styles.tailwind.css --minify`
+    and replace this script tag with a <link> to that file.
+  -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+          },
+        },
+      },
+    }
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Custom styles: only what Tailwind can't do (slider, toast, mood pills, details arrow) -->
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+
+<body class="bg-stone-50 text-stone-900 antialiased min-h-screen font-sans">
+<div id="app">
+
+  <!-- ─────────────────────────────────────────────────────────────────────
+       HEADER
+  ───────────────────────────────────────────────────────────────────────── -->
+  <header class="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-stone-100">
+    <div class="max-w-2xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+
+      <div class="flex items-center gap-2.5">
+        <span class="text-stone-400 text-base leading-none select-none">✦</span>
+        <span class="text-[15px] font-semibold tracking-tight text-stone-800">Reflection Buddy</span>
+      </div>
+
+      <button id="btn-new-entry"
+        class="inline-flex items-center gap-1 bg-stone-900 text-white text-[13px] font-medium px-3.5 py-2 rounded-lg hover:bg-stone-700 active:scale-95 transition-all duration-150 select-none">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/>
+        </svg>
+        New Entry
+      </button>
+
+    </div>
+  </header>
+
+  <!-- ─────────────────────────────────────────────────────────────────────
+       MAIN
+  ───────────────────────────────────────────────────────────────────────── -->
+  <main class="px-4 sm:px-6 pt-8 pb-24">
+
+    <!-- ── DASHBOARD ──────────────────────────────────────────────────── -->
+    <div id="view-dashboard" class="view max-w-2xl mx-auto">
+
+      <!-- Entry count (shown when entries exist) -->
+      <p id="entry-count-banner" class="hidden text-xs font-medium text-stone-400 tracking-wide mb-6 px-0.5"></p>
+
+      <!-- Loading -->
+      <div id="entries-loading"
+        class="flex flex-col items-center justify-center py-28 gap-4">
+        <div class="w-6 h-6 border-[2.5px] border-stone-200 border-t-stone-400 rounded-full animate-spin"></div>
+        <p class="text-sm text-stone-400">Loading your journal…</p>
+      </div>
+
+      <!-- Empty state -->
+      <div id="entries-empty" class="hidden flex-col items-center justify-center py-24 text-center">
+        <div class="text-5xl mb-5 select-none">📓</div>
+        <h2 class="text-xl font-semibold text-stone-800 mb-2 tracking-tight">Your journal is empty</h2>
+        <p class="text-sm text-stone-500 max-w-[280px] mx-auto mb-7 leading-relaxed">
+          Start your reflection practice by writing your first entry.
+        </p>
+        <button id="btn-first-entry"
+          class="inline-flex items-center gap-1.5 bg-stone-900 text-white text-sm font-medium px-5 py-2.5 rounded-lg hover:bg-stone-700 active:scale-95 transition-all duration-150">
+          Write your first entry
+        </button>
+      </div>
+
+      <!-- Error state -->
+      <div id="entries-error" class="hidden mt-8">
+        <div class="bg-red-50 border border-red-100 rounded-xl px-5 py-4">
+          <p id="entries-error-msg" class="text-sm text-red-600 mb-3 leading-relaxed"></p>
+          <button id="btn-retry"
+            class="text-sm font-medium text-stone-600 hover:text-stone-900 underline underline-offset-2 transition-colors">
+            Try again
+          </button>
+        </div>
+      </div>
+
+      <!-- Entries list (populated by JS) -->
+      <div id="entries-list" class="hidden"></div>
+
+    </div>
+
+    <!-- ── NEW ENTRY FORM ─────────────────────────────────────────────── -->
+    <div id="view-new-entry" class="view hidden max-w-2xl mx-auto">
+
+      <!-- Navigation row -->
+      <div class="flex items-center mb-9">
+        <button id="btn-back-from-form"
+          class="flex items-center gap-1.5 text-[13px] font-medium text-stone-400 hover:text-stone-700 transition-colors duration-150">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+          </svg>
+          Back
+        </button>
+        <span class="flex-1 text-center text-[13px] font-semibold text-stone-600 tracking-tight">
+          New Entry
+        </span>
+        <div class="w-14"></div>
+      </div>
+
+      <form id="entry-form" novalidate class="space-y-8">
+
+        <!-- ── Main content ── -->
+        <div class="space-y-2.5">
+          <label for="content" class="block text-[11px] font-semibold text-stone-500 uppercase tracking-[0.08em]">
+            What's on your mind?
+          </label>
+          <textarea
+            id="content"
+            placeholder="Write freely — this is your space…"
+            rows="9"
+            class="w-full bg-white border border-stone-200 rounded-xl px-4 py-3.5 text-[15px] text-stone-800 placeholder-stone-300 resize-none leading-relaxed shadow-sm focus:outline-none focus:ring-2 focus:ring-stone-200 focus:border-stone-300 transition-all duration-150"
+          ></textarea>
+        </div>
+
+        <!-- ── Mood ── -->
+        <div class="space-y-3">
+          <div class="flex items-baseline gap-2">
+            <span class="text-[11px] font-semibold text-stone-500 uppercase tracking-[0.08em]">Mood</span>
+            <span class="text-[11px] text-stone-300">optional</span>
+          </div>
+          <div id="mood-selector" class="flex flex-wrap gap-2">
+            <button type="button" class="mood-btn" data-mood="excited">🤩 Excited</button>
+            <button type="button" class="mood-btn" data-mood="happy">😊 Happy</button>
+            <button type="button" class="mood-btn" data-mood="calm">😌 Calm</button>
+            <button type="button" class="mood-btn" data-mood="neutral">😐 Neutral</button>
+            <button type="button" class="mood-btn" data-mood="anxious">😰 Anxious</button>
+            <button type="button" class="mood-btn" data-mood="sad">😢 Sad</button>
+            <button type="button" class="mood-btn" data-mood="frustrated">😤 Frustrated</button>
+          </div>
+        </div>
+
+        <!-- ── Energy Level ── -->
+        <div class="space-y-3">
+          <div class="flex items-baseline gap-2">
+            <span class="text-[11px] font-semibold text-stone-500 uppercase tracking-[0.08em]">Energy Level</span>
+            <span class="text-[11px] text-stone-300">optional</span>
+            <span id="energy-display" class="ml-auto text-[11px] font-semibold text-stone-500 tabular-nums">—</span>
+          </div>
+          <input type="range" id="energy-level" class="energy-slider w-full"
+            min="1" max="10" step="1" value="5" />
+          <div class="flex justify-between text-[11px] text-stone-300 px-0.5">
+            <span>Low</span>
+            <span>High</span>
+          </div>
+        </div>
+
+        <!-- ── Reflection Questions (collapsible) ── -->
+        <details id="reflection-details"
+          class="group rounded-xl border border-stone-200 bg-white overflow-hidden shadow-sm">
+          <summary class="flex items-center justify-between px-4 py-3.5 cursor-pointer select-none list-none">
+            <div class="flex items-baseline gap-2">
+              <span class="text-[11px] font-semibold text-stone-600 uppercase tracking-[0.08em]">Reflection Questions</span>
+              <span class="text-[11px] text-stone-300">optional</span>
+            </div>
+            <span class="reflection-arrow text-stone-300 text-lg leading-none">›</span>
+          </summary>
+
+          <div class="px-4 pt-4 pb-5 space-y-5 border-t border-stone-100">
+
+            <div class="space-y-2">
+              <label for="q-what-happened" class="block text-[11px] font-medium text-stone-500">
+                What happened today?
+              </label>
+              <textarea id="q-what-happened" rows="3"
+                placeholder="Describe the key events of your day…"
+                class="w-full bg-stone-50 border border-stone-200 rounded-lg px-3.5 py-2.5 text-[13px] text-stone-800 placeholder-stone-300 resize-none leading-relaxed focus:outline-none focus:ring-2 focus:ring-stone-200 focus:border-stone-300 transition-all duration-150"></textarea>
+            </div>
+
+            <div class="space-y-2">
+              <label for="q-how-felt" class="block text-[11px] font-medium text-stone-500">
+                How did I feel?
+              </label>
+              <textarea id="q-how-felt" rows="3"
+                placeholder="Describe your emotional experience…"
+                class="w-full bg-stone-50 border border-stone-200 rounded-lg px-3.5 py-2.5 text-[13px] text-stone-800 placeholder-stone-300 resize-none leading-relaxed focus:outline-none focus:ring-2 focus:ring-stone-200 focus:border-stone-300 transition-all duration-150"></textarea>
+            </div>
+
+            <div class="space-y-2">
+              <label for="q-learned" class="block text-[11px] font-medium text-stone-500">
+                What did I learn about myself?
+              </label>
+              <textarea id="q-learned" rows="3"
+                placeholder="Any insights or self-discoveries…"
+                class="w-full bg-stone-50 border border-stone-200 rounded-lg px-3.5 py-2.5 text-[13px] text-stone-800 placeholder-stone-300 resize-none leading-relaxed focus:outline-none focus:ring-2 focus:ring-stone-200 focus:border-stone-300 transition-all duration-150"></textarea>
+            </div>
+
+            <div class="space-y-2">
+              <label for="q-improve" class="block text-[11px] font-medium text-stone-500">
+                What is one thing I want to improve tomorrow?
+              </label>
+              <textarea id="q-improve" rows="3"
+                placeholder="One small, concrete step…"
+                class="w-full bg-stone-50 border border-stone-200 rounded-lg px-3.5 py-2.5 text-[13px] text-stone-800 placeholder-stone-300 resize-none leading-relaxed focus:outline-none focus:ring-2 focus:ring-stone-200 focus:border-stone-300 transition-all duration-150"></textarea>
+            </div>
+
+          </div>
+        </details>
+
+        <!-- Error -->
+        <div id="form-error"
+          class="hidden bg-red-50 border border-red-100 rounded-lg px-4 py-3 text-sm text-red-600 leading-relaxed">
+        </div>
+
+        <!-- Actions -->
+        <div class="flex items-center justify-end gap-3 pt-1">
+          <button type="button" id="btn-cancel-form"
+            class="text-[13px] font-medium text-stone-400 hover:text-stone-700 px-4 py-2 rounded-lg hover:bg-stone-100 transition-all duration-150">
+            Cancel
+          </button>
+          <button type="submit" id="submit-btn"
+            class="inline-flex items-center gap-2 bg-stone-900 text-white text-[13px] font-medium px-5 py-2.5 rounded-lg hover:bg-stone-700 active:scale-95 transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none">
+            Save Entry
+          </button>
+        </div>
+
+      </form>
+    </div>
+
+    <!-- ── ENTRY DETAIL ───────────────────────────────────────────────── -->
+    <div id="view-entry-detail" class="view hidden max-w-2xl mx-auto">
+
+      <!-- Navigation row -->
+      <div class="flex items-center justify-between mb-9">
+        <button id="btn-back-from-detail"
+          class="flex items-center gap-1.5 text-[13px] font-medium text-stone-400 hover:text-stone-700 transition-colors duration-150">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+          </svg>
+          Back
+        </button>
+        <button id="delete-entry-btn"
+          class="text-[13px] font-medium text-stone-300 hover:text-red-500 transition-colors duration-150">
+          Delete
+        </button>
+      </div>
+
+      <!-- Populated by JS -->
+      <div id="entry-detail-content"></div>
+
+    </div>
+
+  </main>
+</div>
+
+<!-- Toast notification -->
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,143 @@
+/*
+  styles.css — custom rules only
+  Tailwind (loaded via CDN in index.html) handles layout, spacing, color, and typography.
+  This file covers only the things Tailwind can't: range inputs, pill buttons, toast, animations.
+*/
+
+/* ── Hidden utility (override Tailwind's display values) ─────────────────── */
+.hidden { display: none !important; }
+
+/* ── Entry cards — fade-in when the list renders ─────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.entry-card {
+  animation: fadeUp 0.2s ease-out both;
+}
+
+/* Stagger the first few cards for a polished load effect */
+.entry-card:nth-child(1) { animation-delay: 0ms;  }
+.entry-card:nth-child(2) { animation-delay: 40ms; }
+.entry-card:nth-child(3) { animation-delay: 80ms; }
+.entry-card:nth-child(4) { animation-delay: 120ms; }
+
+/* ── Mood pill buttons ────────────────────────────────────────────────────── */
+.mood-btn {
+  padding: 6px 13px;
+  border-radius: 9999px;
+  border: 1.5px solid #E7E5E4;   /* stone-200 */
+  background: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  color: #78716C;                 /* stone-500 */
+  cursor: pointer;
+  transition: all 150ms ease;
+  white-space: nowrap;
+  font-family: inherit;
+  line-height: 1.2;
+  user-select: none;
+}
+
+.mood-btn:hover {
+  border-color: #A8A29E;          /* stone-400 */
+  color: #1C1917;                 /* stone-900 */
+  background: #FAFAF9;            /* stone-50 */
+}
+
+.mood-btn.selected {
+  background: #1C1917;            /* stone-900 */
+  border-color: #1C1917;
+  color: #fff;
+}
+
+/* ── Energy range slider ──────────────────────────────────────────────────── */
+.energy-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 9999px;
+  background: #E7E5E4;            /* stone-200 — overridden by JS for fill */
+  outline: none;
+  cursor: pointer;
+  display: block;
+}
+
+.energy-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #1C1917;            /* stone-900 */
+  border: 2.5px solid #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.20);
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+  margin-top: -7px;
+}
+
+.energy-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 0 5px rgba(28,25,23,0.08);
+}
+
+.energy-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #1C1917;
+  border: 2.5px solid #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.20);
+  cursor: pointer;
+}
+
+.energy-slider::-moz-range-progress {
+  background: #1C1917;
+  height: 4px;
+  border-radius: 9999px;
+}
+
+/* ── Reflection accordion arrow ───────────────────────────────────────────── */
+.reflection-arrow {
+  transition: transform 200ms ease;
+}
+
+details[open] .reflection-arrow {
+  transform: rotate(90deg);
+}
+
+/* ── Toast notification ───────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%) translateY(10px);
+  background: #1C1917;            /* stone-900 */
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  z-index: 9999;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease, transform 220ms ease;
+  white-space: nowrap;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.18), 0 1px 4px rgba(0,0,0,0.10);
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.toast.toast-error   { background: #DC2626; }  /* red-600   */
+.toast.toast-success { background: #16A34A; }  /* green-600 */
+
+/* ── Mobile refinements ───────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .mood-btn { font-size: 12px; padding: 5px 11px; }
+}
