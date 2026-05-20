@@ -2,7 +2,10 @@
 // CONSTANTS & CONFIG
 // ═══════════════════════════════════════════════════════════════════════════
 
-const API_BASE = 'http://localhost:8000/api/v1';
+// In local development the backend runs on a separate port (uvicorn :8000).
+// In production (Vercel) both are on the same origin, so use a relative path.
+const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const API_BASE = IS_LOCAL ? 'http://localhost:8000/api/v1' : '/api/v1';
 
 // Centralized mood metadata — extend this list as moods are added.
 // Colors use soft, pastel-leaning tones that sit comfortably on a stone palette.

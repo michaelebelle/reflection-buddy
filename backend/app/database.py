@@ -12,7 +12,13 @@ if settings.database_url.startswith("sqlite"):
 # To switch to PostgreSQL, change DATABASE_URL in .env to:
 #   postgresql://user:password@localhost:5432/reflection_buddy
 # No other code changes needed — SQLAlchemy handles the rest.
-engine = create_engine(settings.database_url, connect_args=connect_args)
+engine = create_engine(
+    settings.database_url,
+    connect_args=connect_args,
+    # pool_pre_ping validates the connection before each use — important in
+    # serverless environments where connections can go stale between invocations.
+    pool_pre_ping=True,
+)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
