@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, String, Text, Integer, Float, DateTime
+from sqlalchemy import Column, String, Text, Integer, Float, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
 
 from app.database import Base
 
@@ -16,6 +17,10 @@ class JournalEntry(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
+
+    # Owner — nullable to avoid breaking entries created before auth was added.
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    user = relationship("User", back_populates="entries")
 
     # Core entry
     content = Column(Text, nullable=False)

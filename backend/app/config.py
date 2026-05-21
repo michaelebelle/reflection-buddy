@@ -6,9 +6,13 @@ class Settings(BaseSettings):
     debug: bool = False
     database_url: str = "sqlite:///./journal.db"
 
-    # Audit trail — tags every entry with who created/updated it.
-    # Set JOURNAL_OWNER in .env (or Vercel env vars).
-    # Swap for a real user ID once auth is introduced.
+    # Auth — set SECRET_KEY to a long random string in production.
+    # Generate one with: python -c "import secrets; print(secrets.token_hex(32))"
+    secret_key: str = "dev-secret-change-me-in-production"
+    # Long expiry so friends testing don't get logged out constantly.
+    access_token_expire_minutes: int = 60 * 24 * 7  # 7 days
+
+    # Audit trail — kept for backwards compatibility; superseded by JWT user identity.
     journal_owner: str = "owner"
 
     # Future AI configuration — add keys here as features are built

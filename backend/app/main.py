@@ -7,7 +7,9 @@ from sqlalchemy import inspect, text
 
 from app.config import settings
 from app.database import engine, Base
+from app.models import user as _user_model  # noqa: F401 — registers User with Base metadata
 from app.routers import journal
+from app.routers import auth
 
 
 def _run_column_migrations() -> None:
@@ -17,18 +19,21 @@ def _run_column_migrations() -> None:
     existing ones.  This function fills that gap for additive changes.
     Works on both SQLite (local) and PostgreSQL (production).
     """
-    # Columns to add: (column_name, SQL type)
-    new_columns = [
+    insp = inspect(engine)
+
+    # journal_entries — new columns added over time
+    journal_new_cols = [
         ("created_by", "VARCHAR(100)"),
         ("updated_by", "VARCHAR(100)"),
+        ("user_id",    "VARCHAR(36)"),
     ]
     try:
-        existing = {c["name"] for c in inspect(engine).get_columns("journal_entries")}
+        existing = {c["name"] for c in insp.get_columns("journal_entries")}
     except Exception:
-        return  # Table not yet created; create_all below handles it
+        existing = set()  # Table not yet created; create_all handles it
 
     with engine.begin() as conn:
-        for col, col_type in new_columns:
+        for col, col_type in journal_new_cols:
             if col not in existing:
                 conn.execute(text(f"ALTER TABLE journal_entries ADD COLUMN {col} {col_type}"))
 
@@ -59,6 +64,7 @@ app.add_middleware(
 )
 
 # API routes — registered first so they take priority over the static catch-all
+app.include_router(auth.router,    prefix="/api/v1")
 app.include_router(journal.router, prefix="/api/v1")
 
 

@@ -64,11 +64,12 @@ DEFAULT_PROMPTS = [
 ]
 
 
-def create_entry(db: Session, data: JournalEntryCreate) -> JournalEntry:
+def create_entry(db: Session, data: JournalEntryCreate, user_id: str) -> JournalEntry:
     entry = JournalEntry(
         **data.model_dump(),
-        created_by=settings.journal_owner,
-        updated_by=settings.journal_owner,
+        user_id=user_id,
+        created_by=user_id,
+        updated_by=user_id,
     )
     db.add(entry)
     db.commit()
@@ -76,14 +77,20 @@ def create_entry(db: Session, data: JournalEntryCreate) -> JournalEntry:
     return entry
 
 
-def get_entry(db: Session, entry_id: str) -> JournalEntry | None:
-    return db.query(JournalEntry).filter(JournalEntry.id == entry_id).first()
-
-
-def get_entries(db: Session, skip: int = 0, limit: int = 20) -> tuple[list[JournalEntry], int]:
-    total = db.query(func.count(JournalEntry.id)).scalar()
-    entries = (
+def get_entry(db: Session, entry_id: str, user_id: str) -> JournalEntry | None:
+    """Return an entry only if it belongs to user_id — prevents cross-user access."""
+    return (
         db.query(JournalEntry)
+        .filter(JournalEntry.id == entry_id, JournalEntry.user_id == user_id)
+        .first()
+    )
+
+
+def get_entries(db: Session, user_id: str, skip: int = 0, limit: int = 20) -> tuple[list[JournalEntry], int]:
+    base = db.query(JournalEntry).filter(JournalEntry.user_id == user_id)
+    total = base.with_entities(func.count(JournalEntry.id)).scalar()
+    entries = (
+        base
         .order_by(JournalEntry.created_at.desc())
         .offset(skip)
         .limit(limit)
@@ -92,21 +99,21 @@ def get_entries(db: Session, skip: int = 0, limit: int = 20) -> tuple[list[Journ
     return entries, total
 
 
-def update_entry(db: Session, entry_id: str, data: JournalEntryUpdate) -> JournalEntry | None:
-    entry = get_entry(db, entry_id)
+def update_entry(db: Session, entry_id: str, data: JournalEntryUpdate, user_id: str) -> JournalEntry | None:
+    entry = get_entry(db, entry_id, user_id)
     if not entry:
         return None
     # model_dump(exclude_unset=True) only touches fields the caller explicitly sent
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(entry, field, value)
-    entry.updated_by = settings.journal_owner
+    entry.updated_by = user_id
     db.commit()
     db.refresh(entry)
     return entry
 
 
-def delete_entry(db: Session, entry_id: str) -> bool:
-    entry = get_entry(db, entry_id)
+def delete_entry(db: Session, entry_id: str, user_id: str) -> bool:
+    entry = get_entry(db, entry_id, user_id)
     if not entry:
         return False
     db.delete(entry)
@@ -114,10 +121,10 @@ def delete_entry(db: Session, entry_id: str) -> bool:
     return True
 
 
-def get_reflection_prompts(db: Session) -> dict:
-    """Return reflection questions tailored to the writer's most recent mood.
+def get_reflection_prompts(db: Session, user_id: str) -> dict:
+    """Return reflection questions tailored to *this user's* most recent mood.
 
-    Queries the latest entry that has a mood set and picks the matching
+    Queries the user's latest entry that has a mood set and picks the matching
     prompt set from MOOD_PROMPTS.  Falls back to DEFAULT_PROMPTS when no
     mooded entry exists yet (e.g. first-time user).
 
@@ -127,7 +134,7 @@ def get_reflection_prompts(db: Session) -> dict:
     """
     last_mooded = (
         db.query(JournalEntry)
-        .filter(JournalEntry.mood.isnot(None))
+        .filter(JournalEntry.user_id == user_id, JournalEntry.mood.isnot(None))
         .order_by(JournalEntry.created_at.desc())
         .first()
     )

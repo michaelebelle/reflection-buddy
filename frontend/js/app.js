@@ -32,6 +32,20 @@ const MOOD_META = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
+// AUTH STATE & TOKEN HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+const TOKEN_KEY = 'rb_token';
+
+function getToken()          { return localStorage.getItem(TOKEN_KEY); }
+function setToken(t)         { localStorage.setItem(TOKEN_KEY, t); }
+function clearToken()        { localStorage.removeItem(TOKEN_KEY); }
+function authHeaders() {
+  const t = getToken();
+  return t ? { 'Authorization': `Bearer ${t}` } : {};
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // APP STATE
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -41,6 +55,7 @@ const state = {
   selectedEntry: null,
   selectedMood: null,    // currently selected mood button
   energyTouched: false,  // true only after user interacts with the slider
+  authMode: 'login',     // 'login' | 'register'
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -48,9 +63,52 @@ const state = {
 // Future: swap these for an SDK or add auth headers here without touching UI code
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Central 401 handler — clears token and sends the user back to the login screen.
+// Called by every api method after it receives a response.
+function handleUnauthorized() {
+  clearToken();
+  showAuthView();
+}
+
 const api = {
+  async register(email, password) {
+    const res = await fetch(`${API_BASE}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Registration failed (${res.status})`);
+    }
+    return res.json();
+  },
+
+  async login(email, password) {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Login failed (${res.status})`);
+    }
+    return res.json(); // { access_token, token_type }
+  },
+
+  async getMe() {
+    const res = await fetch(`${API_BASE}/auth/me`, { headers: authHeaders() });
+    if (res.status === 401) { handleUnauthorized(); return null; }
+    if (!res.ok) throw new Error(`Could not verify session (${res.status})`);
+    return res.json();
+  },
+
   async getEntries(skip = 0, limit = 50) {
-    const res = await fetch(`${API_BASE}/entries?skip=${skip}&limit=${limit}`);
+    const res = await fetch(`${API_BASE}/entries?skip=${skip}&limit=${limit}`, {
+      headers: authHeaders(),
+    });
+    if (res.status === 401) { handleUnauthorized(); return null; }
     if (!res.ok) throw new Error(`Could not load entries (${res.status})`);
     return res.json();
   },
@@ -58,9 +116,10 @@ const api = {
   async createEntry(data) {
     const res = await fetch(`${API_BASE}/entries`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(data),
     });
+    if (res.status === 401) { handleUnauthorized(); return null; }
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || `Could not save entry (${res.status})`);
@@ -69,12 +128,17 @@ const api = {
   },
 
   async deleteEntry(id) {
-    const res = await fetch(`${API_BASE}/entries/${id}`, { method: 'DELETE' });
+    const res = await fetch(`${API_BASE}/entries/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    if (res.status === 401) { handleUnauthorized(); return; }
     if (!res.ok) throw new Error(`Could not delete entry (${res.status})`);
   },
 
   async getPrompts() {
-    const res = await fetch(`${API_BASE}/entries/prompts`);
+    const res = await fetch(`${API_BASE}/entries/prompts`, { headers: authHeaders() });
+    if (res.status === 401) { handleUnauthorized(); return null; }
     if (!res.ok) throw new Error(`Could not load prompts (${res.status})`);
     return res.json();
   },
@@ -163,6 +227,81 @@ function showView(name) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+// ── Auth view ──────────────────────────────────────────────────────────────
+
+function showAuthView() {
+  document.getElementById('app-header').classList.add('hidden');
+  showView('auth');
+  setTimeout(() => document.getElementById('auth-email').focus(), 50);
+}
+
+function showAppShell() {
+  document.getElementById('app-header').classList.remove('hidden');
+}
+
+function setAuthMode(mode) {
+  state.authMode = mode;
+  const isLogin = mode === 'login';
+
+  const loginTab    = document.getElementById('auth-tab-login');
+  const registerTab = document.getElementById('auth-tab-register');
+  [loginTab, registerTab].forEach(t =>
+    t.classList.remove('bg-white', 'text-stone-800', 'shadow-sm', 'text-stone-500')
+  );
+  (isLogin ? loginTab : registerTab).classList.add('bg-white', 'text-stone-800', 'shadow-sm');
+  (isLogin ? registerTab : loginTab).classList.add('text-stone-500');
+
+  document.getElementById('auth-submit-btn').textContent = isLogin ? 'Sign in' : 'Create account';
+  document.getElementById('auth-password').autocomplete  = isLogin ? 'current-password' : 'new-password';
+  document.getElementById('auth-error').classList.add('hidden');
+}
+
+async function handleAuthSubmit(e) {
+  e.preventDefault();
+  const email    = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const errEl    = document.getElementById('auth-error');
+  const btn      = document.getElementById('auth-submit-btn');
+
+  errEl.classList.add('hidden');
+  btn.disabled    = true;
+  btn.textContent = state.authMode === 'login' ? 'Signing in…' : 'Creating account…';
+
+  try {
+    if (state.authMode === 'register') {
+      await api.register(email, password);
+    }
+    const { access_token } = await api.login(email, password);
+    setToken(access_token);
+    showAppShell();
+    showDashboard();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove('hidden');
+    btn.disabled    = false;
+    btn.textContent = state.authMode === 'login' ? 'Sign in' : 'Create account';
+  }
+}
+
+function signOut() {
+  clearToken();
+  document.getElementById('auth-email').value    = '';
+  document.getElementById('auth-password').value = '';
+  showAuthView();
+  setAuthMode('login');
+}
+
+// Called on every page load — verify the stored token is still valid.
+async function bootstrapAuth() {
+  if (!getToken()) { showAuthView(); setAuthMode('login'); return; }
+  const user = await api.getMe();
+  if (!user) return; // getMe() already redirects to auth on 401
+  showAppShell();
+  showDashboard();
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+
 function showDashboard() {
   showView('dashboard');
   loadEntries();
@@ -230,6 +369,7 @@ async function loadEntries() {
 
   try {
     const data = await api.getEntries();
+    if (!data) return; // 401 — redirected to auth
     state.entries = data.entries;
     state.total   = data.total;
 
@@ -473,7 +613,8 @@ async function handleFormSubmit(e) {
   };
 
   try {
-    await api.createEntry(payload);
+    const result = await api.createEntry(payload);
+    if (!result) return; // 401 — redirected to auth
     showToast('Entry saved!');
     showDashboard();
   } catch (err) {
@@ -526,6 +667,13 @@ function initKeyboard() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function init() {
+  // ── Auth ──
+  document.getElementById('auth-form').addEventListener('submit', handleAuthSubmit);
+  document.getElementById('auth-tab-login').addEventListener('click', () => setAuthMode('login'));
+  document.getElementById('auth-tab-register').addEventListener('click', () => setAuthMode('register'));
+  document.getElementById('btn-sign-out').addEventListener('click', signOut);
+
+  // ── App ──
   document.getElementById('btn-new-entry').addEventListener('click', showNewEntry);
   document.getElementById('btn-back-from-form').addEventListener('click', showDashboard);
   document.getElementById('btn-back-from-detail').addEventListener('click', showDashboard);
@@ -539,7 +687,8 @@ function init() {
   initEnergySlider();
   initKeyboard();
 
-  loadEntries();
+  // Check for a stored token and validate it; show auth screen if none/expired.
+  bootstrapAuth();
 }
 
 document.addEventListener('DOMContentLoaded', init);
