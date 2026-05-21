@@ -7,6 +7,18 @@
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const API_BASE = IS_LOCAL ? 'http://localhost:8000/api/v1' : '/api/v1';
 
+// Default labels for the 4 reflection question fields.
+// Matches the static HTML and is used to reset the form between sessions.
+const DEFAULT_QUESTION_LABELS = [
+  'What happened today?',
+  'How did I feel?',
+  'What did I learn about myself?',
+  'What is one thing I want to improve tomorrow?',
+];
+
+// DOM IDs for the 4 reflection question <label> elements (in order).
+const QUESTION_LABEL_IDS = ['label-q1', 'label-q2', 'label-q3', 'label-q4'];
+
 // Centralized mood metadata — extend this list as moods are added.
 // Colors use soft, pastel-leaning tones that sit comfortably on a stone palette.
 const MOOD_META = {
@@ -59,6 +71,12 @@ const api = {
   async deleteEntry(id) {
     const res = await fetch(`${API_BASE}/entries/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error(`Could not delete entry (${res.status})`);
+  },
+
+  async getPrompts() {
+    const res = await fetch(`${API_BASE}/entries/prompts`);
+    if (!res.ok) throw new Error(`Could not load prompts (${res.status})`);
+    return res.json();
   },
 };
 
@@ -150,10 +168,41 @@ function showDashboard() {
   loadEntries();
 }
 
-function showNewEntry() {
+async function showNewEntry() {
   resetForm();
   showView('new-entry');
   document.getElementById('content').focus();
+
+  // Fetch mood-tailored prompts in the background.
+  // Silently falls back to the default labels already set by resetForm().
+  try {
+    const data = await api.getPrompts();
+    applyPrompts(data);
+  } catch {
+    // No-op — default labels are already in place
+  }
+}
+
+/**
+ * Update the 4 reflection question labels with server-supplied prompts
+ * and show/hide the context banner that explains why they changed.
+ */
+function applyPrompts(data) {
+  data.prompts.forEach((question, i) => {
+    const el = document.getElementById(QUESTION_LABEL_IDS[i]);
+    if (el) el.textContent = question;
+  });
+
+  const banner  = document.getElementById('prompt-context-banner');
+  const moodEl  = document.getElementById('prompt-context-mood');
+
+  if (data.mood_context) {
+    const meta = MOOD_META[data.mood_context];
+    moodEl.textContent = meta ? `${meta.emoji} ${meta.label.toLowerCase()}` : data.mood_context;
+    banner.classList.remove('hidden');
+  } else {
+    banner.classList.add('hidden');
+  }
 }
 
 function showEntryDetail(entry) {
@@ -349,6 +398,14 @@ function resetForm() {
   state.selectedMood  = null;
   state.energyTouched = false;
   document.getElementById('reflection-details').removeAttribute('open');
+
+  // Reset question labels to defaults so the user always sees something
+  // sensible before the tailored prompts load from the server.
+  DEFAULT_QUESTION_LABELS.forEach((label, i) => {
+    const el = document.getElementById(QUESTION_LABEL_IDS[i]);
+    if (el) el.textContent = label;
+  });
+  document.getElementById('prompt-context-banner').classList.add('hidden');
 }
 
 function initMoodSelector() {

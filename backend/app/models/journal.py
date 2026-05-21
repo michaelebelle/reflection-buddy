@@ -28,6 +28,11 @@ class JournalEntry(Base):
     q_learned = Column(Text, nullable=True)
     q_improve_tomorrow = Column(Text, nullable=True)
 
+    # Audit trail — who created / last updated this entry.
+    # Populated from settings.journal_owner; swap for a real user ID once auth lands.
+    created_by = Column(String(100), nullable=True)
+    updated_by = Column(String(100), nullable=True)
+
     # ── Future AI fields ───────────────────────────────────────────────────
     # Uncomment each column as the corresponding AI feature is built.
     # Keeping them here as a roadmap makes migrations straightforward.

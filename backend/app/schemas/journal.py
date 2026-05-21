@@ -43,6 +43,8 @@ class JournalEntryResponse(BaseModel):
     q_how_felt: Optional[str]
     q_learned: Optional[str]
     q_improve_tomorrow: Optional[str]
+    created_by: Optional[str]
+    updated_by: Optional[str]
 
     # Future: add ai_summary, themes, generated_prompts here as they're built
 
@@ -54,3 +56,9 @@ class JournalEntryList(BaseModel):
     total: int
     skip: int
     limit: int
+
+
+class PromptResponse(BaseModel):
+    """Reflection questions tailored to the writer's most recent mood."""
+    mood_context: Optional[str]  # The mood that shaped these prompts (None = defaults used)
+    prompts: list[str]           # Exactly 4 question strings, one per reflection field

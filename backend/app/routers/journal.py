@@ -7,6 +7,7 @@ from app.schemas.journal import (
     JournalEntryUpdate,
     JournalEntryResponse,
     JournalEntryList,
+    PromptResponse,
 )
 from app.services import journal as journal_service
 
@@ -16,6 +17,15 @@ router = APIRouter(prefix="/entries", tags=["journal"])
 @router.post("", response_model=JournalEntryResponse, status_code=status.HTTP_201_CREATED)
 def create_entry(entry: JournalEntryCreate, db: Session = Depends(get_db)):
     return journal_service.create_entry(db, entry)
+
+
+@router.get("/prompts", response_model=PromptResponse)
+def get_reflection_prompts(db: Session = Depends(get_db)):
+    """Return 4 reflection questions tailored to the user's most recent mood.
+
+    Registered before /{entry_id} so FastAPI doesn't treat 'prompts' as an ID.
+    """
+    return journal_service.get_reflection_prompts(db)
 
 
 @router.get("", response_model=JournalEntryList)

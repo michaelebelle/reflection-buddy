@@ -181,8 +181,16 @@
 
           <div class="px-4 pt-4 pb-5 space-y-5 border-t border-stone-100">
 
+            <!-- Shown when prompts are tailored to a previous mood -->
+            <div id="prompt-context-banner" class="hidden flex items-center gap-2 px-3 py-2 bg-stone-50 rounded-lg border border-stone-100">
+              <span class="text-stone-300 text-[11px] leading-none select-none">✦</span>
+              <p class="text-[11px] text-stone-400">Questions shaped by your last
+                <span id="prompt-context-mood" class="font-semibold text-stone-500"></span> entry
+              </p>
+            </div>
+
             <div class="space-y-2">
-              <label for="q-what-happened" class="block text-[11px] font-medium text-stone-500">
+              <label for="q-what-happened" id="label-q1" class="block text-[11px] font-medium text-stone-500">
                 What happened today?
               </label>
               <textarea id="q-what-happened" rows="3"
@@ -191,7 +199,7 @@
             </div>
 
             <div class="space-y-2">
-              <label for="q-how-felt" class="block text-[11px] font-medium text-stone-500">
+              <label for="q-how-felt" id="label-q2" class="block text-[11px] font-medium text-stone-500">
                 How did I feel?
               </label>
               <textarea id="q-how-felt" rows="3"
@@ -200,7 +208,7 @@
             </div>
 
             <div class="space-y-2">
-              <label for="q-learned" class="block text-[11px] font-medium text-stone-500">
+              <label for="q-learned" id="label-q3" class="block text-[11px] font-medium text-stone-500">
                 What did I learn about myself?
               </label>
               <textarea id="q-learned" rows="3"
@@ -209,7 +217,7 @@
             </div>
 
             <div class="space-y-2">
-              <label for="q-improve" class="block text-[11px] font-medium text-stone-500">
+              <label for="q-improve" id="label-q4" class="block text-[11px] font-medium text-stone-500">
                 What is one thing I want to improve tomorrow?
               </label>
               <textarea id="q-improve" rows="3"
