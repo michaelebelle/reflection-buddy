@@ -9,6 +9,7 @@ from app.schemas.journal import (
     JournalEntryResponse,
     JournalEntryList,
     PromptResponse,
+    SemanticSearchResponse,
 )
 from app.services import journal as journal_service
 from app.services.auth import get_current_user
@@ -23,6 +24,27 @@ def create_entry(
     current_user: User = Depends(get_current_user),
 ):
     return journal_service.create_entry(db, entry, user_id=current_user.id)
+
+
+@router.get("/search", response_model=SemanticSearchResponse)
+def search_entries(
+    q: str = Query(..., min_length=1, description="Natural-language search query"),
+    limit: int = Query(5, ge=1, le=20, description="Max results to return"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Semantic search across the user's journal entries.
+
+    Uses vector cosine similarity — finds entries that *mean* something similar
+    to the query, not just entries that contain the same keywords.
+
+    Examples:
+      - "times I felt proud of myself"
+      - "conflicts with my manager"
+      - "moments of clarity or insight"
+    """
+    results = journal_service.semantic_search(db, user_id=current_user.id, query=q, limit=limit)
+    return SemanticSearchResponse(query=q, results=results)
 
 
 @router.get("/prompts", response_model=PromptResponse)

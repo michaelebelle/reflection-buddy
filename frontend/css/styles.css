@@ -137,6 +137,37 @@ details[open] .reflection-arrow {
 .toast.toast-error   { background: #DC2626; }  /* red-600   */
 .toast.toast-success { background: #16A34A; }  /* green-600 */
 
+/* ── Onboarding habit quick-add chips ────────────────────────────────────── */
+.ob-habit-chip {
+  padding: 6px 13px;
+  border-radius: 9999px;
+  border: 1.5px solid #E7E5E4;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  color: #78716C;
+  cursor: pointer;
+  transition: all 150ms ease;
+  font-family: inherit;
+  user-select: none;
+}
+
+.ob-habit-chip:hover:not(:disabled) {
+  border-color: #1C1917;
+  color: #1C1917;
+  background: #FAFAF9;
+}
+
+.ob-habit-chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Onboarding cards — fade in when rendered ─────────────────────────────── */
+.ob-card {
+  animation: fadeUp 0.15s ease-out both;
+}
+
 /* ── Mobile refinements ───────────────────────────────────────────────────── */
 @media (max-width: 480px) {
   .mood-btn { font-size: 12px; padding: 5px 11px; }

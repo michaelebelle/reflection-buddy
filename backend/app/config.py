@@ -15,10 +15,9 @@ class Settings(BaseSettings):
     # Audit trail — kept for backwards compatibility; superseded by JWT user identity.
     journal_owner: str = "owner"
 
-    # Future AI configuration — add keys here as features are built
-    # openai_api_key: str | None = None
-    # anthropic_api_key: str | None = None
-    # embedding_model: str = "text-embedding-3-small"
+    # AI configuration — set these in your environment / Vercel dashboard
+    anthropic_api_key: str | None = None   # Powers reflection question generation
+    openai_api_key: str | None = None      # Powers entry embeddings + semantic search
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

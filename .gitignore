@@ -33,3 +33,4 @@ Thumbs.db
 
 # Claude Code local tooling (memory, launch config, hooks)
 .claude/
+.vercel

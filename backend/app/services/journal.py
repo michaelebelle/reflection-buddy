@@ -1,9 +1,15 @@
+import logging
+
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 
 from app.models.journal import JournalEntry
 from app.schemas.journal import JournalEntryCreate, JournalEntryUpdate
 from app.config import settings
+from app.services.ai_prompts import prompt_generator
+from app.services.embeddings import embedding_service
+
+logger = logging.getLogger(__name__)
 
 
 # ── Mood-based reflection prompts ─────────────────────────────────────────────
@@ -74,6 +80,7 @@ def create_entry(db: Session, data: JournalEntryCreate, user_id: str) -> Journal
     db.add(entry)
     db.commit()
     db.refresh(entry)
+    _store_embedding(db, entry)
     return entry
 
 
@@ -109,6 +116,7 @@ def update_entry(db: Session, entry_id: str, data: JournalEntryUpdate, user_id: 
     entry.updated_by = user_id
     db.commit()
     db.refresh(entry)
+    _store_embedding(db, entry)
     return entry
 
 
@@ -122,25 +130,122 @@ def delete_entry(db: Session, entry_id: str, user_id: str) -> bool:
 
 
 def get_reflection_prompts(db: Session, user_id: str) -> dict:
-    """Return reflection questions tailored to *this user's* most recent mood.
+    """Return reflection questions tailored to this user's recent journal history.
 
-    Queries the user's latest entry that has a mood set and picks the matching
-    prompt set from MOOD_PROMPTS.  Falls back to DEFAULT_PROMPTS when no
-    mooded entry exists yet (e.g. first-time user).
-
-    TODO: Replace heuristic lookup with RAG — embed the last N entries,
-    retrieve semantically similar past moments, and generate prompts with
-    an LLM grounded in the user's own history.
+    Strategy (in priority order):
+    1. AI-generated — uses the Anthropic API to produce personalised questions
+       grounded in the user's last few entries.  Requires ANTHROPIC_API_KEY.
+    2. Mood heuristic — if AI is unavailable, fall back to the static
+       MOOD_PROMPTS table keyed on the user's most recent mood.
+    3. Generic defaults — used when neither AI nor a mood is available
+       (e.g. brand-new users who haven't written anything yet).
     """
-    last_mooded = (
+    # Fetch the user's most recent entries for AI context
+    recent_entries = (
         db.query(JournalEntry)
-        .filter(JournalEntry.user_id == user_id, JournalEntry.mood.isnot(None))
+        .filter(JournalEntry.user_id == user_id)
         .order_by(JournalEntry.created_at.desc())
-        .first()
+        .limit(prompt_generator.MAX_CONTEXT_ENTRIES)
+        .all()
+    )
+
+    # Determine current mood from the latest entry that has one set
+    last_mooded = next(
+        (e for e in recent_entries if e.mood),
+        None,
     )
     mood = last_mooded.mood if last_mooded else None
-    prompts = MOOD_PROMPTS.get(mood, DEFAULT_PROMPTS) if mood else DEFAULT_PROMPTS
-    return {"mood_context": mood, "prompts": prompts}
+
+    # 1. Try AI generation
+    if settings.anthropic_api_key:
+        prompts = prompt_generator.generate(recent_entries, current_mood=mood)
+        return {"mood_context": mood, "prompts": prompts, "source": "ai"}
+
+    # 2. Fall back to mood heuristic
+    if mood and mood in MOOD_PROMPTS:
+        return {"mood_context": mood, "prompts": MOOD_PROMPTS[mood], "source": "heuristic"}
+
+    # 3. Generic defaults
+    return {"mood_context": mood, "prompts": DEFAULT_PROMPTS, "source": "default"}
+
+
+# ── Embedding helpers ─────────────────────────────────────────────────────
+
+def _store_embedding(db: Session, entry: JournalEntry) -> None:
+    """Generate and persist an embedding for the given entry.
+
+    Uses a raw SQL UPDATE so the vector column (Postgres-only) doesn't need to
+    be declared in the SQLAlchemy model — which keeps local SQLite dev working.
+    Silently skips on SQLite or when OPENAI_API_KEY is not set.
+    """
+    if db.bind.dialect.name != "postgresql":  # type: ignore[union-attr]
+        return
+
+    entry_text = embedding_service.build_entry_text(entry)
+    vector = embedding_service.generate(entry_text)
+    if vector is None:
+        return
+
+    vec_str = embedding_service.format_for_sql(vector)
+    try:
+        db.execute(
+            text(
+                "UPDATE journal_entries "
+                "SET embedding = CAST(:vec AS vector) "
+                "WHERE id = :id"
+            ),
+            {"vec": vec_str, "id": entry.id},
+        )
+        db.commit()
+    except Exception:
+        logger.exception("Failed to store embedding for entry %s", entry.id)
+        db.rollback()
+
+
+def semantic_search(
+    db: Session,
+    user_id: str,
+    query: str,
+    limit: int = 5,
+) -> list[dict]:
+    """Return entries semantically similar to *query*, ranked by cosine distance.
+
+    Returns a list of dicts with keys: id, content, mood, created_at, similarity.
+    Returns an empty list if:
+      - Not on Postgres (SQLite local dev)
+      - OPENAI_API_KEY not set
+      - No entries have been embedded yet
+    """
+    if db.bind.dialect.name != "postgresql":  # type: ignore[union-attr]
+        return []
+
+    query_vec = embedding_service.generate(query)
+    if query_vec is None:
+        return []
+
+    vec_str = embedding_service.format_for_sql(query_vec)
+    rows = db.execute(
+        text(
+            "SELECT id, content, mood, created_at, "
+            "       1 - (embedding <-> CAST(:vec AS vector)) AS similarity "
+            "FROM journal_entries "
+            "WHERE user_id = :user_id AND embedding IS NOT NULL "
+            "ORDER BY embedding <-> CAST(:vec AS vector) "
+            "LIMIT :limit"
+        ),
+        {"vec": vec_str, "user_id": user_id, "limit": limit},
+    ).fetchall()
+
+    return [
+        {
+            "id": row.id,
+            "content": row.content,
+            "mood": row.mood,
+            "created_at": row.created_at,
+            "similarity": round(float(row.similarity), 4),
+        }
+        for row in rows
+    ]
 
 
 # ── Future AI service hooks ────────────────────────────────────────────────

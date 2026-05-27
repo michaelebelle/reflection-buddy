@@ -122,6 +122,147 @@
       </div>
     </div>
 
+    <!-- ── ONBOARDING WIZARD ───────────────────────────────────────────── -->
+    <div id="view-onboarding" class="view hidden max-w-xl mx-auto py-10">
+
+      <!-- Progress bar -->
+      <div class="mb-8">
+        <div class="flex justify-between items-center mb-2">
+          <span class="text-[11px] font-semibold text-stone-400 uppercase tracking-[0.08em]">
+            Setting up your journal
+          </span>
+          <span id="ob-step-label" class="text-[11px] font-medium text-stone-400 tabular-nums">Step 1 of 4</span>
+        </div>
+        <div class="w-full bg-stone-100 rounded-full h-1.5">
+          <div id="ob-progress-bar" class="bg-stone-900 h-1.5 rounded-full transition-all duration-300" style="width:25%"></div>
+        </div>
+      </div>
+
+      <!-- ── STEP 1: Goals ── -->
+      <div id="ob-step-1" class="ob-step">
+        <h2 class="text-2xl font-bold text-stone-900 tracking-tight mb-1">What are you working towards?</h2>
+        <p class="text-sm text-stone-400 mb-8">Add 1–3 goals. Your journal will track progress against these.</p>
+
+        <div id="ob-goals-list" class="space-y-4 mb-5"></div>
+
+        <button id="ob-add-goal"
+          class="w-full py-3 border-2 border-dashed border-stone-200 rounded-xl text-[13px] font-medium text-stone-400 hover:border-stone-400 hover:text-stone-600 transition-all duration-150">
+          + Add a goal
+        </button>
+        <p id="ob-goals-error" class="hidden text-xs text-red-500 mt-2"></p>
+      </div>
+
+      <!-- ── STEP 2: Stressors ── -->
+      <div id="ob-step-2" class="ob-step hidden">
+        <h2 class="text-2xl font-bold text-stone-900 tracking-tight mb-1">What's weighing on you?</h2>
+        <p class="text-sm text-stone-400 mb-8">Add up to 5 current stressors. Skip if nothing major applies right now.</p>
+
+        <div id="ob-stressors-list" class="space-y-4 mb-5"></div>
+
+        <button id="ob-add-stressor"
+          class="w-full py-3 border-2 border-dashed border-stone-200 rounded-xl text-[13px] font-medium text-stone-400 hover:border-stone-400 hover:text-stone-600 transition-all duration-150">
+          + Add a stressor
+        </button>
+      </div>
+
+      <!-- ── STEP 3: Habits ── -->
+      <div id="ob-step-3" class="ob-step hidden">
+        <h2 class="text-2xl font-bold text-stone-900 tracking-tight mb-1">What habits do you want to track?</h2>
+        <p class="text-sm text-stone-400 mb-8">Choose 3–8 habits. Your AI coach will spot patterns across your entries.</p>
+
+        <!-- Quick-add chips -->
+        <div class="flex flex-wrap gap-2 mb-6">
+          <span class="text-[11px] font-semibold text-stone-400 uppercase tracking-[0.08em] w-full mb-1">Quick add</span>
+          <button type="button" class="ob-habit-chip" data-name="Exercise"    data-freq="daily"       data-pol="positive" data-type="boolean">🏃 Exercise</button>
+          <button type="button" class="ob-habit-chip" data-name="Sleep"       data-freq="daily"       data-pol="positive" data-type="numeric">😴 Sleep</button>
+          <button type="button" class="ob-habit-chip" data-name="Deep work"   data-freq="5x_per_week" data-pol="positive" data-type="boolean">🧠 Deep work</button>
+          <button type="button" class="ob-habit-chip" data-name="Reading"     data-freq="daily"       data-pol="positive" data-type="boolean">📚 Reading</button>
+          <button type="button" class="ob-habit-chip" data-name="Meditation"  data-freq="daily"       data-pol="positive" data-type="boolean">🧘 Meditation</button>
+          <button type="button" class="ob-habit-chip" data-name="Journaling"  data-freq="daily"       data-pol="positive" data-type="boolean">📓 Journaling</button>
+          <button type="button" class="ob-habit-chip" data-name="Screen time" data-freq="daily"       data-pol="negative" data-type="duration">📱 Screen time</button>
+          <button type="button" class="ob-habit-chip" data-name="Nutrition"   data-freq="daily"       data-pol="positive" data-type="boolean">🥗 Nutrition</button>
+        </div>
+
+        <div id="ob-habits-list" class="space-y-4 mb-5"></div>
+
+        <button id="ob-add-habit"
+          class="w-full py-3 border-2 border-dashed border-stone-200 rounded-xl text-[13px] font-medium text-stone-400 hover:border-stone-400 hover:text-stone-600 transition-all duration-150">
+          + Add a custom habit
+        </button>
+        <p id="ob-habits-error" class="hidden text-xs text-red-500 mt-2"></p>
+      </div>
+
+      <!-- ── STEP 4: Baselines ── -->
+      <div id="ob-step-4" class="ob-step hidden">
+        <h2 class="text-2xl font-bold text-stone-900 tracking-tight mb-1">Where are you starting from?</h2>
+        <p class="text-sm text-stone-400 mb-8">These become your baseline — the AI will measure your progress against them.</p>
+
+        <div class="space-y-7">
+          <div class="ob-baseline-row" data-key="mood_baseline">
+            <div class="flex justify-between items-baseline mb-2">
+              <span class="text-[13px] font-semibold text-stone-700">Mood</span>
+              <span class="ob-baseline-val text-[13px] font-bold text-stone-900 tabular-nums">6</span>
+            </div>
+            <input type="range" class="ob-baseline-slider energy-slider w-full" min="1" max="10" step="1" value="6" />
+            <div class="flex justify-between text-[11px] text-stone-300 mt-1"><span>Low</span><span>High</span></div>
+          </div>
+          <div class="ob-baseline-row" data-key="energy_baseline">
+            <div class="flex justify-between items-baseline mb-2">
+              <span class="text-[13px] font-semibold text-stone-700">Energy</span>
+              <span class="ob-baseline-val text-[13px] font-bold text-stone-900 tabular-nums">6</span>
+            </div>
+            <input type="range" class="ob-baseline-slider energy-slider w-full" min="1" max="10" step="1" value="6" />
+            <div class="flex justify-between text-[11px] text-stone-300 mt-1"><span>Low</span><span>High</span></div>
+          </div>
+          <div class="ob-baseline-row" data-key="stress_baseline">
+            <div class="flex justify-between items-baseline mb-2">
+              <span class="text-[13px] font-semibold text-stone-700">Stress level</span>
+              <span class="ob-baseline-val text-[13px] font-bold text-stone-900 tabular-nums">6</span>
+            </div>
+            <input type="range" class="ob-baseline-slider energy-slider w-full" min="1" max="10" step="1" value="6" />
+            <div class="flex justify-between text-[11px] text-stone-300 mt-1"><span>Low</span><span>High</span></div>
+          </div>
+          <div class="ob-baseline-row" data-key="confidence_baseline">
+            <div class="flex justify-between items-baseline mb-2">
+              <span class="text-[13px] font-semibold text-stone-700">Confidence</span>
+              <span class="ob-baseline-val text-[13px] font-bold text-stone-900 tabular-nums">6</span>
+            </div>
+            <input type="range" class="ob-baseline-slider energy-slider w-full" min="1" max="10" step="1" value="6" />
+            <div class="flex justify-between text-[11px] text-stone-300 mt-1"><span>Low</span><span>High</span></div>
+          </div>
+          <div class="ob-baseline-row" data-key="discipline_baseline">
+            <div class="flex justify-between items-baseline mb-2">
+              <span class="text-[13px] font-semibold text-stone-700">Discipline</span>
+              <span class="ob-baseline-val text-[13px] font-bold text-stone-900 tabular-nums">6</span>
+            </div>
+            <input type="range" class="ob-baseline-slider energy-slider w-full" min="1" max="10" step="1" value="6" />
+            <div class="flex justify-between text-[11px] text-stone-300 mt-1"><span>Low</span><span>High</span></div>
+          </div>
+          <div class="ob-baseline-row" data-key="life_satisfaction_baseline">
+            <div class="flex justify-between items-baseline mb-2">
+              <span class="text-[13px] font-semibold text-stone-700">Life satisfaction</span>
+              <span class="ob-baseline-val text-[13px] font-bold text-stone-900 tabular-nums">6</span>
+            </div>
+            <input type="range" class="ob-baseline-slider energy-slider w-full" min="1" max="10" step="1" value="6" />
+            <div class="flex justify-between text-[11px] text-stone-300 mt-1"><span>Low</span><span>High</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Nav buttons -->
+      <div class="flex justify-between items-center mt-10">
+        <button id="ob-back-btn"
+          class="text-[13px] font-medium text-stone-400 hover:text-stone-700 px-4 py-2 rounded-lg hover:bg-stone-100 transition-all duration-150 invisible">
+          Back
+        </button>
+        <button id="ob-next-btn"
+          class="inline-flex items-center gap-2 bg-stone-900 text-white text-[13px] font-medium px-6 py-2.5 rounded-lg hover:bg-stone-700 active:scale-95 transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed">
+          Continue
+        </button>
+      </div>
+
+    </div>
+
     <!-- ── DASHBOARD ──────────────────────────────────────────────────── -->
     <div id="view-dashboard" class="view max-w-2xl mx-auto">
 

@@ -58,7 +58,22 @@ class JournalEntryList(BaseModel):
     limit: int
 
 
+class SemanticSearchResult(BaseModel):
+    """A single entry returned from semantic search."""
+    id: str
+    content: str
+    mood: Optional[str]
+    created_at: datetime
+    similarity: float  # 0.0 (unrelated) → 1.0 (identical)
+
+
+class SemanticSearchResponse(BaseModel):
+    query: str
+    results: list[SemanticSearchResult]
+
+
 class PromptResponse(BaseModel):
-    """Reflection questions tailored to the writer's most recent mood."""
-    mood_context: Optional[str]  # The mood that shaped these prompts (None = defaults used)
+    """Reflection questions tailored to the writer's recent journal history."""
+    mood_context: Optional[str]  # The mood that shaped these prompts (None = no mood found)
     prompts: list[str]           # Exactly 4 question strings, one per reflection field
+    source: str = "default"      # "ai" | "heuristic" | "default" — for UI badges / debugging

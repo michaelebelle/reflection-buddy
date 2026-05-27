@@ -7,9 +7,19 @@ from sqlalchemy import inspect, text
 
 from app.config import settings
 from app.database import engine, Base
-from app.models import user as _user_model  # noqa: F401 — registers User with Base metadata
+from app.models import user as _user_model        # noqa: F401 — registers User with Base metadata
+from app.models import onboarding as _ob_model    # noqa: F401 — registers onboarding models
 from app.routers import journal
 from app.routers import auth
+from app.routers import onboarding
+from app.services.embeddings import embedding_service
+
+# Mirror the dimension constant so the migration SQL stays in sync with the service
+_EMBEDDING_DIMENSIONS = embedding_service.DIMENSIONS
+
+
+def _is_postgres() -> bool:
+    return engine.dialect.name == "postgresql"
 
 
 def _run_column_migrations() -> None:
@@ -21,7 +31,7 @@ def _run_column_migrations() -> None:
     """
     insp = inspect(engine)
 
-    # journal_entries — new columns added over time
+    # ── journal_entries — columns added over time ──────────────────────────
     journal_new_cols = [
         ("created_by", "VARCHAR(100)"),
         ("updated_by", "VARCHAR(100)"),
@@ -36,6 +46,16 @@ def _run_column_migrations() -> None:
         for col, col_type in journal_new_cols:
             if col not in existing:
                 conn.execute(text(f"ALTER TABLE journal_entries ADD COLUMN {col} {col_type}"))
+
+        # ── pgvector (Postgres only) ───────────────────────────────────────
+        # Enables the pgvector extension and adds the embedding column.
+        # Skipped on SQLite (local dev) — entries save fine without embeddings.
+        if _is_postgres() and "embedding" not in existing:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            conn.execute(text(
+                "ALTER TABLE journal_entries "
+                f"ADD COLUMN embedding vector({_EMBEDDING_DIMENSIONS})"
+            ))
 
 
 @asynccontextmanager
@@ -64,8 +84,9 @@ app.add_middleware(
 )
 
 # API routes — registered first so they take priority over the static catch-all
-app.include_router(auth.router,    prefix="/api/v1")
-app.include_router(journal.router, prefix="/api/v1")
+app.include_router(auth.router,        prefix="/api/v1")
+app.include_router(journal.router,     prefix="/api/v1")
+app.include_router(onboarding.router,  prefix="/api/v1")
 
 
 @app.get("/health", tags=["meta"])

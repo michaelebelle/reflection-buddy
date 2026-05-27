@@ -1,4 +1,25 @@
 // ═══════════════════════════════════════════════════════════════════════════
+// ONBOARDING CONFIG  (edit to add / remove options)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const OB_GOAL_CATEGORIES = [
+  'career','fitness','relationships','mental_health',
+  'discipline','finances','school','creativity','other',
+];
+const OB_GOAL_TIMEFRAMES = ['1_month','3_months','6_months','1_year','ongoing'];
+
+const OB_STRESSOR_CATEGORIES = [
+  'work','school','relationships','family','money',
+  'health','loneliness','burnout','motivation','time_management','other',
+];
+const OB_STRESSOR_FREQUENCIES = [
+  'daily','several_times_per_week','weekly','occasionally',
+];
+
+const OB_HABIT_FREQUENCIES = ['daily','3x_per_week','5x_per_week','weekly','as_needed'];
+const OB_TRACKING_TYPES    = ['boolean','numeric','duration','text'];
+
+// ═══════════════════════════════════════════════════════════════════════════
 // CONSTANTS & CONFIG
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -142,6 +163,27 @@ const api = {
     if (!res.ok) throw new Error(`Could not load prompts (${res.status})`);
     return res.json();
   },
+
+  async getOnboarding() {
+    const res = await fetch(`${API_BASE}/onboarding`, { headers: authHeaders() });
+    if (res.status === 401) { handleUnauthorized(); return null; }
+    if (!res.ok) throw new Error(`Could not load onboarding (${res.status})`);
+    return res.json(); // null if not yet completed
+  },
+
+  async saveOnboarding(payload) {
+    const res = await fetch(`${API_BASE}/onboarding`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(payload),
+    });
+    if (res.status === 401) { handleUnauthorized(); return null; }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Could not save onboarding (${res.status})`);
+    }
+    return res.json();
+  },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -274,7 +316,13 @@ async function handleAuthSubmit(e) {
     const { access_token } = await api.login(email, password);
     setToken(access_token);
     showAppShell();
-    showDashboard();
+    // New registrations go straight to onboarding; returning users skip it
+    const onboarding = await api.getOnboarding();
+    if (!onboarding) {
+      showOnboarding();
+    } else {
+      showDashboard();
+    }
   } catch (err) {
     errEl.textContent = err.message;
     errEl.classList.remove('hidden');
@@ -297,7 +345,14 @@ async function bootstrapAuth() {
   const user = await api.getMe();
   if (!user) return; // getMe() already redirects to auth on 401
   showAppShell();
-  showDashboard();
+
+  // Check if onboarding is complete
+  const onboarding = await api.getOnboarding();
+  if (!onboarding) {
+    showOnboarding();
+  } else {
+    showDashboard();
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -650,6 +705,369 @@ async function handleDelete() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ONBOARDING WIZARD
+// ═══════════════════════════════════════════════════════════════════════════
+
+const obState = {
+  step: 1,        // 1–4
+  goals: [],      // [{ category, title, why_it_matters, success_definition, target_timeframe }]
+  stressors: [],  // [{ category, description, intensity, frequency }]
+  habits: [],     // [{ name, desired_frequency, positive_or_negative, tracking_type }]
+};
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function obSelect(options, selectedVal, name) {
+  return `<select name="${name}"
+    class="w-full bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-[13px] text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-200 transition-all">
+    ${options.map(o => `<option value="${o}" ${o === selectedVal ? 'selected' : ''}>${o.replace(/_/g,' ')}</option>`).join('')}
+  </select>`;
+}
+
+function obLabel(text) {
+  return `<span class="block text-[11px] font-semibold text-stone-500 uppercase tracking-[0.08em] mb-1">${text}</span>`;
+}
+
+function obInput(placeholder, value = '', name = '') {
+  return `<input type="text" name="${name}" value="${escapeHtml(value)}" placeholder="${placeholder}"
+    class="w-full bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-[13px] text-stone-800 placeholder-stone-300 focus:outline-none focus:ring-2 focus:ring-stone-200 transition-all" />`;
+}
+
+function obTextarea(placeholder, value = '', name = '') {
+  return `<textarea name="${name}" rows="2" placeholder="${placeholder}"
+    class="w-full bg-stone-50 border border-stone-200 rounded-lg px-3 py-2.5 text-[13px] text-stone-800 placeholder-stone-300 resize-none focus:outline-none focus:ring-2 focus:ring-stone-200 transition-all">${escapeHtml(value)}</textarea>`;
+}
+
+function obRemoveBtn(idx, type) {
+  return `<button type="button" class="ob-remove-btn text-stone-300 hover:text-red-400 transition-colors text-lg leading-none" data-idx="${idx}" data-type="${type}" aria-label="Remove">×</button>`;
+}
+
+// ── Goal cards ─────────────────────────────────────────────────────────────
+
+function renderGoalCard(g, idx) {
+  return `
+    <div class="ob-card bg-white rounded-xl border border-stone-200 p-4 space-y-3" data-idx="${idx}">
+      <div class="flex justify-between items-center">
+        <span class="text-[12px] font-semibold text-stone-500">Goal ${idx + 1}</span>
+        ${obRemoveBtn(idx, 'goal')}
+      </div>
+      <div>${obLabel('Category')}${obSelect(OB_GOAL_CATEGORIES, g.category, 'category')}</div>
+      <div>${obLabel('Title')}${obInput('e.g. Get an AI engineering job', g.title, 'title')}</div>
+      <div>${obLabel('Why it matters')}${obTextarea('What would achieving this change?', g.why_it_matters, 'why_it_matters')}</div>
+      <div>${obLabel('What success looks like')}${obTextarea('How will you know you made it?', g.success_definition, 'success_definition')}</div>
+      <div>${obLabel('Target timeframe')}${obSelect(OB_GOAL_TIMEFRAMES, g.target_timeframe, 'target_timeframe')}</div>
+    </div>`;
+}
+
+function syncGoalsFromDOM() {
+  obState.goals = [...document.querySelectorAll('#ob-goals-list .ob-card')].map(card => ({
+    category:           card.querySelector('[name=category]').value,
+    title:              card.querySelector('[name=title]').value.trim(),
+    why_it_matters:     card.querySelector('[name=why_it_matters]').value.trim(),
+    success_definition: card.querySelector('[name=success_definition]').value.trim(),
+    target_timeframe:   card.querySelector('[name=target_timeframe]').value,
+  }));
+}
+
+function renderGoals() {
+  document.getElementById('ob-goals-list').innerHTML =
+    obState.goals.map(renderGoalCard).join('');
+}
+
+// ── Stressor cards ─────────────────────────────────────────────────────────
+
+function renderStressorCard(s, idx) {
+  return `
+    <div class="ob-card bg-white rounded-xl border border-stone-200 p-4 space-y-3" data-idx="${idx}">
+      <div class="flex justify-between items-center">
+        <span class="text-[12px] font-semibold text-stone-500">Stressor ${idx + 1}</span>
+        ${obRemoveBtn(idx, 'stressor')}
+      </div>
+      <div>${obLabel('Category')}${obSelect(OB_STRESSOR_CATEGORIES, s.category, 'category')}</div>
+      <div>${obLabel('Description')}${obTextarea('What\'s going on?', s.description, 'description')}</div>
+      <div>
+        ${obLabel('Intensity (1–10)')}
+        <div class="flex items-center gap-3">
+          <input type="range" name="intensity" min="1" max="10" step="1" value="${s.intensity}"
+            class="energy-slider flex-1" />
+          <span class="ob-intensity-val text-[13px] font-bold text-stone-700 tabular-nums w-8 text-right">${s.intensity}</span>
+        </div>
+      </div>
+      <div>${obLabel('Frequency')}${obSelect(OB_STRESSOR_FREQUENCIES, s.frequency, 'frequency')}</div>
+    </div>`;
+}
+
+function syncStressorsFromDOM() {
+  obState.stressors = [...document.querySelectorAll('#ob-stressors-list .ob-card')].map(card => ({
+    category:    card.querySelector('[name=category]').value,
+    description: card.querySelector('[name=description]').value.trim(),
+    intensity:   parseInt(card.querySelector('[name=intensity]').value, 10),
+    frequency:   card.querySelector('[name=frequency]').value,
+  }));
+}
+
+function renderStressors() {
+  document.getElementById('ob-stressors-list').innerHTML =
+    obState.stressors.map(renderStressorCard).join('');
+  // Wire up live intensity display
+  document.querySelectorAll('#ob-stressors-list [name=intensity]').forEach(slider => {
+    slider.addEventListener('input', () => {
+      slider.closest('.ob-card').querySelector('.ob-intensity-val').textContent = slider.value;
+      updateSliderTrack(slider, true);
+    });
+    updateSliderTrack(slider, true);
+  });
+}
+
+// ── Habit cards ────────────────────────────────────────────────────────────
+
+function renderHabitCard(h, idx) {
+  return `
+    <div class="ob-card bg-white rounded-xl border border-stone-200 p-4 space-y-3" data-idx="${idx}">
+      <div class="flex justify-between items-center">
+        <span class="text-[12px] font-semibold text-stone-500">Habit ${idx + 1}</span>
+        ${obRemoveBtn(idx, 'habit')}
+      </div>
+      <div>${obLabel('Habit name')}${obInput('e.g. Morning run', h.name, 'name')}</div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>${obLabel('Frequency')}${obSelect(OB_HABIT_FREQUENCIES, h.desired_frequency, 'desired_frequency')}</div>
+        <div>${obLabel('Type')}${obSelect(OB_TRACKING_TYPES, h.tracking_type, 'tracking_type')}</div>
+      </div>
+      <div>
+        ${obLabel('Positive or negative habit?')}
+        <div class="flex gap-3 mt-1">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="pol_${idx}" value="positive" ${h.positive_or_negative === 'positive' ? 'checked' : ''}
+              class="accent-stone-900" />
+            <span class="text-[13px] text-stone-700">Positive</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="pol_${idx}" value="negative" ${h.positive_or_negative === 'negative' ? 'checked' : ''}
+              class="accent-stone-900" />
+            <span class="text-[13px] text-stone-700">Negative (I want less of this)</span>
+          </label>
+        </div>
+      </div>
+    </div>`;
+}
+
+function syncHabitsFromDOM() {
+  obState.habits = [...document.querySelectorAll('#ob-habits-list .ob-card')].map((card, idx) => ({
+    name:                 card.querySelector('[name=name]').value.trim(),
+    desired_frequency:    card.querySelector('[name=desired_frequency]').value,
+    tracking_type:        card.querySelector('[name=tracking_type]').value,
+    positive_or_negative: card.querySelector(`[name=pol_${idx}]:checked`)?.value || 'positive',
+  }));
+}
+
+function renderHabits() {
+  document.getElementById('ob-habits-list').innerHTML =
+    obState.habits.map(renderHabitCard).join('');
+}
+
+// ── Step navigation ────────────────────────────────────────────────────────
+
+function obUpdateProgress() {
+  const pct = (obState.step / 4) * 100;
+  document.getElementById('ob-progress-bar').style.width = `${pct}%`;
+  document.getElementById('ob-step-label').textContent = `Step ${obState.step} of 4`;
+
+  document.querySelectorAll('.ob-step').forEach((el, i) => {
+    el.classList.toggle('hidden', i + 1 !== obState.step);
+  });
+
+  const backBtn = document.getElementById('ob-back-btn');
+  const nextBtn = document.getElementById('ob-next-btn');
+  backBtn.classList.toggle('invisible', obState.step === 1);
+  nextBtn.textContent = obState.step === 4 ? 'Finish setup' : 'Continue';
+}
+
+function obValidateStep() {
+  if (obState.step === 1) {
+    syncGoalsFromDOM();
+    if (obState.goals.length === 0) {
+      showObError('ob-goals-error', 'Add at least one goal to continue.');
+      return false;
+    }
+    for (const g of obState.goals) {
+      if (!g.title) { showObError('ob-goals-error', 'Every goal needs a title.'); return false; }
+      if (!g.why_it_matters) { showObError('ob-goals-error', 'Explain why each goal matters.'); return false; }
+      if (!g.success_definition) { showObError('ob-goals-error', 'Define success for each goal.'); return false; }
+    }
+    hideObError('ob-goals-error');
+  }
+
+  if (obState.step === 2) {
+    syncStressorsFromDOM();
+    for (const s of obState.stressors) {
+      if (!s.description) {
+        showToast('Add a description for each stressor.', 'error'); return false;
+      }
+    }
+  }
+
+  if (obState.step === 3) {
+    syncHabitsFromDOM();
+    if (obState.habits.length < 3) {
+      showObError('ob-habits-error', 'Add at least 3 habits.'); return false;
+    }
+    for (const h of obState.habits) {
+      if (!h.name) { showObError('ob-habits-error', 'Every habit needs a name.'); return false; }
+    }
+    hideObError('ob-habits-error');
+  }
+
+  return true;
+}
+
+function showObError(id, msg) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function hideObError(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.add('hidden');
+}
+
+async function obNext() {
+  if (!obValidateStep()) return;
+
+  if (obState.step < 4) {
+    obState.step++;
+    obUpdateProgress();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return;
+  }
+
+  // Step 4 submit — collect baseline sliders
+  const baseline = {};
+  document.querySelectorAll('.ob-baseline-row').forEach(row => {
+    baseline[row.dataset.key] = parseInt(row.querySelector('.ob-baseline-slider').value, 10);
+  });
+
+  const nextBtn = document.getElementById('ob-next-btn');
+  nextBtn.disabled = true;
+  nextBtn.textContent = 'Saving…';
+
+  try {
+    await api.saveOnboarding({
+      goals:            obState.goals,
+      stressors:        obState.stressors,
+      habits:           obState.habits,
+      baseline_ratings: baseline,
+    });
+    showToast('Onboarding complete!');
+    showDashboard();
+  } catch (err) {
+    showToast(err.message, 'error');
+    nextBtn.disabled = false;
+    nextBtn.textContent = 'Finish setup';
+  }
+}
+
+// ── Entry point ────────────────────────────────────────────────────────────
+
+function showOnboarding() {
+  obState.step = 1;
+  obState.goals = [{ category: 'career', title: '', why_it_matters: '', success_definition: '', target_timeframe: '3_months' }];
+  obState.stressors = [];
+  obState.habits = [];
+
+  renderGoals();
+  renderStressors();
+  renderHabits();
+  obUpdateProgress();
+
+  // Init baseline sliders
+  document.querySelectorAll('.ob-baseline-slider').forEach(slider => {
+    updateSliderTrack(slider, true);
+    slider.addEventListener('input', () => {
+      slider.closest('.ob-baseline-row').querySelector('.ob-baseline-val').textContent = slider.value;
+      updateSliderTrack(slider, true);
+    });
+  });
+
+  showView('onboarding');
+}
+
+function initOnboarding() {
+  document.getElementById('ob-next-btn').addEventListener('click', obNext);
+
+  document.getElementById('ob-back-btn').addEventListener('click', () => {
+    if (obState.step > 1) { obState.step--; obUpdateProgress(); }
+  });
+
+  // Add buttons
+  document.getElementById('ob-add-goal').addEventListener('click', () => {
+    if (obState.goals.length >= 3) { showObError('ob-goals-error', 'Maximum 3 goals.'); return; }
+    syncGoalsFromDOM();
+    obState.goals.push({ category: 'career', title: '', why_it_matters: '', success_definition: '', target_timeframe: '3_months' });
+    renderGoals();
+  });
+
+  document.getElementById('ob-add-stressor').addEventListener('click', () => {
+    if (obState.stressors.length >= 5) { showToast('Maximum 5 stressors.', 'error'); return; }
+    syncStressorsFromDOM();
+    obState.stressors.push({ category: 'work', description: '', intensity: 5, frequency: 'daily' });
+    renderStressors();
+  });
+
+  document.getElementById('ob-add-habit').addEventListener('click', () => {
+    if (obState.habits.length >= 8) { showObError('ob-habits-error', 'Maximum 8 habits.'); return; }
+    syncHabitsFromDOM();
+    obState.habits.push({ name: '', desired_frequency: 'daily', positive_or_negative: 'positive', tracking_type: 'boolean' });
+    renderHabits();
+  });
+
+  // Quick-add habit chips
+  document.querySelectorAll('.ob-habit-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      if (obState.habits.length >= 8) { showObError('ob-habits-error', 'Maximum 8 habits.'); return; }
+      syncHabitsFromDOM();
+      // Avoid duplicates
+      if (obState.habits.some(h => h.name.toLowerCase() === chip.dataset.name.toLowerCase())) return;
+      obState.habits.push({
+        name:                 chip.dataset.name,
+        desired_frequency:    chip.dataset.freq,
+        positive_or_negative: chip.dataset.pol,
+        tracking_type:        chip.dataset.type,
+      });
+      renderHabits();
+      chip.classList.add('opacity-40', 'cursor-not-allowed');
+      chip.disabled = true;
+    });
+  });
+
+  // Remove buttons (delegated)
+  document.getElementById('ob-goals-list').addEventListener('click', e => {
+    const btn = e.target.closest('.ob-remove-btn');
+    if (!btn || btn.dataset.type !== 'goal') return;
+    syncGoalsFromDOM();
+    obState.goals.splice(parseInt(btn.dataset.idx, 10), 1);
+    renderGoals();
+  });
+
+  document.getElementById('ob-stressors-list').addEventListener('click', e => {
+    const btn = e.target.closest('.ob-remove-btn');
+    if (!btn || btn.dataset.type !== 'stressor') return;
+    syncStressorsFromDOM();
+    obState.stressors.splice(parseInt(btn.dataset.idx, 10), 1);
+    renderStressors();
+  });
+
+  document.getElementById('ob-habits-list').addEventListener('click', e => {
+    const btn = e.target.closest('.ob-remove-btn');
+    if (!btn || btn.dataset.type !== 'habit') return;
+    syncHabitsFromDOM();
+    obState.habits.splice(parseInt(btn.dataset.idx, 10), 1);
+    renderHabits();
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // KEYBOARD SHORTCUTS
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -686,6 +1104,7 @@ function init() {
   initMoodSelector();
   initEnergySlider();
   initKeyboard();
+  initOnboarding();
 
   // Check for a stored token and validate it; show auth screen if none/expired.
   bootstrapAuth();
