@@ -43,6 +43,17 @@ def get_onboarding(db: Session, user_id: str) -> OnboardingResponse | None:
 
 # ── Write ──────────────────────────────────────────────────────────────────
 
+def _clear_all(db: Session, user_id: str) -> None:
+    """Delete all existing goals, stressors, and habits for a user.
+
+    Called before a full re-submission so POST /onboarding is idempotent.
+    The meta row (user_onboarding) is kept — only its fields are overwritten.
+    """
+    db.query(UserGoal).filter(UserGoal.user_id == user_id).delete()
+    db.query(UserStressor).filter(UserStressor.user_id == user_id).delete()
+    db.query(UserHabit).filter(UserHabit.user_id == user_id).delete()
+
+
 def save_onboarding(db: Session, user_id: str, data: OnboardingCreate) -> OnboardingResponse:
     """Create or fully replace a user's onboarding data.
 

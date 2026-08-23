@@ -1,5 +1,5 @@
 # CURRENT_STATE.md
-> Last updated: 2026-06-01 — read this first when returning to the project
+> Last updated: 2026-08-23 — read this first when returning to the project
 
 ---
 
@@ -43,6 +43,13 @@ Reflection Buddy is a deployed, working AI journaling platform. Users register, 
 - [x] `build_llm_context()` — formats onboarding profile into LLM-injectable text block
 - [x] Per-user data isolation — all queries filtered by user_id
 - [x] Deployed on Vercel + Neon
+- [x] **Goal Check-In section** — below the journal form, shows today's due habits with Yes/Not today buttons + optional notes
+- [x] Habit scheduling — `schedule_type` (daily, specific_days, x_per_week, unscheduled) + `schedule_days` (comma-separated weekdays) on `user_habits`
+- [x] `habit_logs` table — UNIQUE(user_id, habit_id, date) constraint; idempotent POST (upsert semantics)
+- [x] GET /check-ins/today — deterministic scheduling logic (no LLM), returns only due habits with existing log state merged
+- [x] POST /check-ins — creates or updates a log for a given habit+date
+- [x] PUT /check-ins/{id} — partial update (completed, note)
+- [x] Onboarding habit cards include schedule_type selector and day-picker toggle buttons (Mon–Sun)
 
 ---
 
@@ -77,6 +84,7 @@ Reflection Buddy is a deployed, working AI journaling platform. Users register, 
 
 ```
 Current:  Phase 2 — Semantic Search (core done, search UI remaining)
+         Phase 3.5 — Goal Check-In ✅ (just completed)
 Next:     Phase 3 — Journal RAG (ask questions about your history)
 ```
 
@@ -86,7 +94,7 @@ Next:     Phase 3 — Journal RAG (ask questions about your history)
 
 1. **Search UI** — wire existing `GET /entries/search` endpoint to the dashboard
 2. **Embedding backfill script** — embed all historical entries so search works immediately
-3. **Habit check-in UI** — daily logging against habits defined in onboarding
+3. **Habit streak calculation** — compute current streaks from `habit_logs` rows; expose via API
 4. **Goal-entry linkage** — AI scores how much each entry relates to each goal
 5. **Weekly AI summary** — Claude-generated summary of the past 7 days using retrieved entries
 
@@ -99,10 +107,12 @@ Next:     Phase 3 — Journal RAG (ask questions about your history)
 | `backend/app/services/journal.py` | All journal business logic | Add any new journal feature here first |
 | `backend/app/services/ai_prompts.py` | Claude question generation | Edit `SYSTEM_PROMPT` or `SMART_SYSTEM_PROMPT` to tune AI behavior |
 | `backend/app/services/onboarding.py` | Onboarding CRUD + `build_llm_context()` | This function gets injected into every LLM call — keep it accurate |
+| `backend/app/services/checkin.py` | Goal check-in business logic | `_is_due()` scheduling, `get_today_check_ins()`, upsert logic |
 | `backend/app/services/embeddings.py` | OpenAI embedding generation | Change `MODEL` or `DIMENSIONS` here if switching embedding provider |
 | `backend/app/main.py` | App factory + startup migrations | Add new column migrations here; register new routers here |
 | `frontend/js/app.js` | All frontend logic | Single file — search for function names to find any UI behavior |
-| `backend/app/models/onboarding.py` | 4 onboarding tables | Add new onboarding fields here |
+| `backend/app/models/onboarding.py` | 4 onboarding tables | Add new onboarding fields here (user_habits gains schedule_type/schedule_days/goal_id) |
+| `backend/app/models/checkin.py` | HabitLog table | Stores daily check-in state per habit |
 
 ---
 
@@ -111,11 +121,12 @@ Next:     Phase 3 — Journal RAG (ask questions about your history)
 | Decision | Options | Current Recommendation |
 |---|---|---|
 | **Migration strategy** | Current: hand-rolled `ALTER TABLE` at startup / Alembic | Move to Alembic before any multi-instance or team deployment |
-| **Habit log storage** | New `habit_logs` table vs. JSON column on entry | Separate table — needed for streak queries and time-series analysis |
+| **Habit log storage** | ~~New `habit_logs` table~~ ✅ Implemented | Separate table — `habit_logs` with UNIQUE(user_id, habit_id, date) is live |
 | **Goal-entry linkage model** | Explicit FK table / implicit via embedding similarity | Start with embedding similarity (no schema change needed); add explicit table when goal dashboard is built |
 | **Weekly summary generation** | On-demand endpoint / scheduled cron | On-demand first; cron job once usage patterns are clear |
 | **RAG retrieval strategy** | Top-K cosine similarity (current) / hybrid BM25 + vector | Top-K is already implemented; add BM25 when pure semantic retrieval misses keyword-specific queries |
 | **Frontend framework** | Stay vanilla / add React/Vue | Stay vanilla until complexity justifies a build step |
+| **Check-in scheduling in service vs. DB** | Deterministic service-layer logic (current) / DB-level trigger | Service layer is simple and testable; move to DB if scheduling rules grow complex |
 
 ---
 
@@ -123,6 +134,7 @@ Next:     Phase 3 — Journal RAG (ask questions about your history)
 
 | Date | Feature | Files Modified | Impact |
 |---|---|---|---|
+| 2026-08-23 | Goal Check-In feature (Phase 3.5) | `models/checkin.py`, `schemas/checkin.py`, `services/checkin.py`, `routers/checkin.py`, `models/onboarding.py`, `schemas/onboarding.py`, `main.py`, `frontend/index.html`, `frontend/js/app.js` | Daily habit logging with scheduling rules; "Morning run" shows every day, "Workout" shows Mon/Wed/Sat, etc. Logs stored in `habit_logs` with UNIQUE constraint. |
 | 2026-06-01 | Smart contextual prompts (POST /entries/prompts/smart) | `services/ai_prompts.py`, `services/journal.py`, `schemas/journal.py`, `routers/journal.py`, `frontend/js/app.js`, `frontend/index.html` | Users can now generate Claude questions grounded in what they're writing + similar past entries |
 | 2026-06-01 | User onboarding wizard (4 steps) | `models/onboarding.py`, `schemas/onboarding.py`, `services/onboarding.py`, `routers/onboarding.py`, `main.py`, `frontend/index.html`, `frontend/js/app.js` | All new users captured goals, stressors, habits, baselines — LLM context now available for every user |
 | 2026-06-01 | Entry embeddings + semantic search | `services/embeddings.py`, `services/journal.py`, `schemas/journal.py`, `routers/journal.py`, `main.py` | Every entry now auto-embedded; GET /entries/search works in production |
@@ -133,4 +145,4 @@ Next:     Phase 3 — Journal RAG (ask questions about your history)
 
 ## Development Resume Summary
 
-"Built a full-stack AI journaling platform (Reflection Buddy) from scratch, including custom bcrypt/JWT authentication, per-user journal storage with mood and energy tracking, structured reflection prompts, and a 4-step onboarding system that captures user goals, stressors, habits, and baseline self-ratings. Integrated the Anthropic API (Claude Haiku 4.5) for personalized reflection question generation and OpenAI's text-embedding-3-small for entry embeddings stored in a pgvector column on Neon Postgres. Built semantic search across journal history and a 'smart prompts' feature that finds similar past entries and generates contextual follow-up questions grounded in both the current entry and the user's onboarding profile. Deployed on Vercel as a serverless FastAPI application with a vanilla JS single-page frontend."
+"Built a full-stack AI journaling platform (Reflection Buddy) from scratch, including custom bcrypt/JWT authentication, per-user journal storage with mood and energy tracking, structured reflection prompts, and a 4-step onboarding system that captures user goals, stressors, habits, and baseline self-ratings. Integrated the Anthropic API (Claude Haiku 4.5) for personalized reflection question generation and OpenAI's text-embedding-3-small for entry embeddings stored in a pgvector column on Neon Postgres. Built semantic search across journal history and a 'smart prompts' feature that finds similar past entries and generates contextual follow-up questions grounded in both the current entry and the user's onboarding profile. Added a Goal Check-In layer: habit scheduling (daily, specific days, x-per-week) with a `habit_logs` table for daily logging, deterministic service-layer scheduling logic, and a dedicated check-in UI section below the journal form. Deployed on Vercel as a serverless FastAPI application with a vanilla JS single-page frontend."

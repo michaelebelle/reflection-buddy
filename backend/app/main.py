@@ -9,9 +9,11 @@ from app.config import settings
 from app.database import engine, Base
 from app.models import user as _user_model        # noqa: F401 — registers User with Base metadata
 from app.models import onboarding as _ob_model    # noqa: F401 — registers onboarding models
+from app.models import checkin as _checkin_model  # noqa: F401 — registers HabitLog with Base metadata
 from app.routers import journal
 from app.routers import auth
 from app.routers import onboarding
+from app.routers import checkin
 from app.services.embeddings import embedding_service
 
 # Mirror the dimension constant so the migration SQL stays in sync with the service
@@ -57,6 +59,22 @@ def _run_column_migrations() -> None:
                 f"ADD COLUMN embedding vector({_EMBEDDING_DIMENSIONS})"
             ))
 
+    # ── user_habits — scheduling and goal-link columns ────────────────────
+    try:
+        habit_existing = {c["name"] for c in insp.get_columns("user_habits")}
+    except Exception:
+        habit_existing = set()
+
+    habit_new_cols = [
+        ("schedule_type", "VARCHAR(20)"),
+        ("schedule_days", "VARCHAR(20)"),
+        ("goal_id",       "VARCHAR(36)"),
+    ]
+    with engine.begin() as conn:
+        for col, col_type in habit_new_cols:
+            if col not in habit_existing:
+                conn.execute(text(f"ALTER TABLE user_habits ADD COLUMN {col} {col_type}"))
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -87,6 +105,7 @@ app.add_middleware(
 app.include_router(auth.router,        prefix="/api/v1")
 app.include_router(journal.router,     prefix="/api/v1")
 app.include_router(onboarding.router,  prefix="/api/v1")
+app.include_router(checkin.router,     prefix="/api/v1")
 
 
 @app.get("/health", tags=["meta"])

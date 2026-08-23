@@ -1,5 +1,5 @@
 # ARCHITECTURE.md
-> Last updated: 2026-06-01 — reflects actual codebase state
+> Last updated: 2026-08-23 — reflects actual codebase state
 
 ---
 
@@ -24,14 +24,16 @@ User (Browser)
                                 │
                                 ├── /api/v1/auth/*         → Auth router
                                 ├── /api/v1/entries/*      → Journal router
-                                └── /api/v1/onboarding/*   → Onboarding router
+                                ├── /api/v1/onboarding/*   → Onboarding router
+                                └── /api/v1/check-ins/*    → Goal Check-In router
                                         │
                                         ├── Services layer
                                         │     ├── auth.py          (bcrypt + JWT)
                                         │     ├── journal.py        (CRUD + search)
                                         │     ├── ai_prompts.py     (Claude API)
                                         │     ├── embeddings.py     (OpenAI API)
-                                        │     └── onboarding.py     (CRUD + LLM context)
+                                        │     ├── onboarding.py     (CRUD + LLM context)
+                                        │     └── checkin.py        (scheduling + log CRUD)
                                         │
                                         ├── SQLAlchemy ORM
                                         │
@@ -60,19 +62,23 @@ reflection-buddy/
 │       ├── models/
 │       │   ├── user.py         User table
 │       │   ├── journal.py      JournalEntry table
-│       │   └── onboarding.py   UserOnboarding, UserGoal, UserStressor, UserHabit tables
+│       │   ├── onboarding.py   UserOnboarding, UserGoal, UserStressor, UserHabit tables
+│       │   └── checkin.py      HabitLog table (UNIQUE user_id+habit_id+date)
 │       │
 │       ├── schemas/
 │       │   ├── auth.py         UserCreate, UserResponse, Token
 │       │   ├── journal.py      JournalEntry*, PromptResponse, SmartPromptRequest/Response,
 │       │   │                   SemanticSearchResponse
-│       │   └── onboarding.py   Goal/Stressor/Habit create+response schemas, enums,
-│       │                       OnboardingCreate/Patch/Response
+│       │   ├── onboarding.py   Goal/Stressor/Habit create+response schemas, enums,
+│       │   │                   OnboardingCreate/Patch/Response
+│       │   └── checkin.py      HabitLogCreate/Update/Response, TodayCheckIn,
+│       │                       TodayCheckInsResponse
 │       │
 │       ├── routers/
 │       │   ├── auth.py         POST /register, POST /login, GET /me
 │       │   ├── journal.py      CRUD + GET /prompts + POST /prompts/smart + GET /search
-│       │   └── onboarding.py   POST / GET / PATCH /onboarding
+│       │   ├── onboarding.py   POST / GET / PATCH /onboarding
+│       │   └── checkin.py      GET /check-ins/today, POST /check-ins, PUT /check-ins/{id}
 │       │
 │       └── services/
 │           ├── auth.py         hash_password, verify_password, create_access_token,
@@ -84,7 +90,8 @@ reflection-buddy/
 │           │                   (context-aware with similar entries)
 │           ├── embeddings.py   EmbeddingService — OpenAI text-embedding-3-small,
 │           │                   build_entry_text, format_for_sql
-│           └── onboarding.py   save/get/patch onboarding, build_llm_context()
+│           ├── onboarding.py   save/get/patch onboarding, build_llm_context()
+│           └── checkin.py      _is_due(), get_today_check_ins(), create_log(), update_log()
 │
 ├── frontend/
 │   ├── index.html          Single-page app — all views in one file (hidden/shown by JS)
@@ -202,8 +209,10 @@ Runs on every cold start. Idempotent `ALTER TABLE` statements add new columns to
 ### Smart Contextual Prompts — **Implemented**
 - `POST /entries/prompts/smart` — takes current entry text, finds similar past entries, generates Claude questions
 
-### Habit Tracking / Logging — **Planned**
-Habits are collected during onboarding but no log table or tracking endpoint exists yet. Future: `habit_logs` table with daily check-ins, streak calculation, correlation with mood.
+### Goal Check-In / Habit Logging — **Implemented (Phase 1)**
+`habit_logs` table is live with UNIQUE(user_id, habit_id, date). Scheduling rules (`schedule_type`, `schedule_days`) live on `user_habits`. GET /check-ins/today returns only today's due habits merged with existing log state. POST /check-ins is idempotent (upsert). Frontend shows a Goal Check-In section below the journal form with Yes/Not today buttons and optional notes.
+
+**Still planned:** streak calculation, habit-mood correlation, x_per_week scheduling enforcement.
 
 ### Goal Progress Analysis — **Planned**
 Goals are stored in `user_goals` but no linkage to journal entries or progress tracking exists. Future: `goal_progress_events` table, LLM-based goal-entry alignment scoring.
@@ -231,6 +240,7 @@ graph TD
         Auth["router: /auth"]
         Journal["router: /entries"]
         Onboard["router: /onboarding"]
+        CheckIn["router: /check-ins"]
     end
 
     subgraph Services
@@ -239,6 +249,7 @@ graph TD
         AISvc["ai_prompts.py\nClaude Haiku 4.5"]
         EmbedSvc["embeddings.py\nOpenAI ada-3-small"]
         OBSvc["onboarding.py\nCRUD + LLM context"]
+        CheckInSvc["checkin.py\nscheduling + log CRUD"]
     end
 
     subgraph Storage
@@ -254,15 +265,17 @@ graph TD
     Browser -->|"static files"| Entry
     Browser -->|"API calls + Bearer token"| Entry
     Entry --> FastAPI
-    FastAPI --> Auth & Journal & Onboard
+    FastAPI --> Auth & Journal & Onboard & CheckIn
     Auth --> AuthSvc
     Journal --> JournalSvc
     Journal --> AISvc
     Journal --> EmbedSvc
     Onboard --> OBSvc
+    CheckIn --> CheckInSvc
     JournalSvc --> SQLite & Neon
     AuthSvc --> SQLite & Neon
     OBSvc --> SQLite & Neon
+    CheckInSvc --> SQLite & Neon
     AISvc --> Anthropic
     EmbedSvc --> OpenAI
 ```

@@ -1,5 +1,5 @@
 # DATABASE_SCHEMA.md
-> Last updated: 2026-06-01 — verified against actual SQLAlchemy models
+> Last updated: 2026-08-23 — verified against actual SQLAlchemy models
 
 ---
 
@@ -23,6 +23,7 @@
 | `backend/app/models/user.py` | `users` |
 | `backend/app/models/journal.py` | `journal_entries` |
 | `backend/app/models/onboarding.py` | `user_onboarding`, `user_goals`, `user_stressors`, `user_habits` |
+| `backend/app/models/checkin.py` | `habit_logs` |
 
 ---
 
@@ -39,7 +40,11 @@ users
   │
   ├──< user_stressors    (user_id FK, CASCADE DELETE)
   │
-  └──< user_habits       (user_id FK, CASCADE DELETE)
+  ├──< user_habits       (user_id FK, CASCADE DELETE)
+  │       │
+  │       └──< habit_logs   (habit_id FK + user_id FK, CASCADE DELETE)
+  │                          UNIQUE(user_id, habit_id, date)
+  └──< habit_logs        (user_id FK, CASCADE DELETE)
 ```
 
 ---
@@ -161,10 +166,13 @@ users
 | desired_frequency | VARCHAR(50) | NOT NULL | daily, 3x_per_week, 5x_per_week, weekly, as_needed |
 | positive_or_negative | VARCHAR(20) | NOT NULL | positive or negative |
 | tracking_type | VARCHAR(20) | NOT NULL | boolean, numeric, duration, text |
+| schedule_type | VARCHAR(20) | YES | daily, specific_days, x_per_week, unscheduled — controls check-in scheduling |
+| schedule_days | VARCHAR(20) | YES | Comma-separated weekdays 0=Mon..6=Sun. Only used when schedule_type = specific_days (e.g. "0,2,5" = Mon/Wed/Sat) |
+| goal_id | VARCHAR(36) | YES | FK → user_goals.id, SET NULL on delete — reserved for Phase 4 goal linkage |
 | created_at | DATETIME(tz) | NOT NULL | Row creation time |
 
-**Indexes:** `user_id`
-**Notes:** Habits are *defined* here. A `habit_logs` table for daily check-ins does not yet exist — see Future Data Models.
+**Indexes:** `user_id`, `goal_id`
+**Notes:** `schedule_type` and `schedule_days` were added via `_run_column_migrations()` as nullable columns on 2026-08-23. The `goal_id` FK column exists in the DB but no application logic uses it yet.
 
 ---
 
@@ -177,6 +185,8 @@ users
 | Added `user_id` FK to `journal_entries` | `_run_column_migrations()` idempotent ALTER | `main.py` |
 | Added `embedding vector(1536)` to `journal_entries` (Postgres only) | `_run_column_migrations()` + `CREATE EXTENSION IF NOT EXISTS vector` | `main.py` |
 | Added `user_onboarding`, `user_goals`, `user_stressors`, `user_habits` | `create_all()` (models imported in `main.py`) | `models/onboarding.py` |
+| Added `schedule_type`, `schedule_days`, `goal_id` to `user_habits` | `_run_column_migrations()` idempotent ALTER | `main.py` |
+| Added `habit_logs` table | `create_all()` (model imported in `main.py`) | `models/checkin.py` |
 
 **Migration approach:** No Alembic. All migrations run at startup via `_run_column_migrations()`. Idempotent — safe to run on every cold start. Fine for single-instance deployment; replace with Alembic before horizontal scaling.
 
@@ -194,16 +204,38 @@ users
 
 ---
 
+---
+
+## Table: `habit_logs`
+
+**Purpose:** Daily habit check-in records. One row per (user, habit, date) — enforced by UNIQUE constraint.
+
+| Column | Type | Nullable | Description |
+|---|---|---|---|
+| id | VARCHAR(36) | NOT NULL | UUID v4, primary key |
+| user_id | VARCHAR(36) | NOT NULL | FK → users.id, CASCADE DELETE, indexed |
+| habit_id | VARCHAR(36) | NOT NULL | FK → user_habits.id, CASCADE DELETE |
+| date | VARCHAR(10) | NOT NULL | ISO date string "YYYY-MM-DD" (user's local date, not server time) |
+| completed | BOOLEAN | NOT NULL | true = habit done today |
+| note | TEXT | YES | Optional free-text note for the check-in |
+| value_numeric | FLOAT | YES | Reserved for future numeric tracking (e.g. minutes, reps) |
+| created_at | DATETIME(tz) | NOT NULL | UTC row creation time |
+| updated_at | DATETIME(tz) | NOT NULL | Auto-updated on any write |
+
+**Constraints:** `UNIQUE(user_id, habit_id, date)` — named `uq_habit_log_user_habit_date`
+**Indexes:** `user_id`
+**Notes:**
+- `date` is stored as VARCHAR(10) (not SQLAlchemy Date) for SQLite/Postgres dialect compatibility — ISO strings sort correctly
+- POST /check-ins is idempotent: if a row already exists for (user_id, habit_id, date), it is updated in place
+- `value_numeric` is reserved but unused — all current tracking uses the boolean `completed` flag
+
+---
+
 ## Future Data Models
 
-### `habit_logs` — Planned
-Daily habit check-ins. Does not exist yet.
-```
-id, user_id, habit_id (FK user_habits), date, value (boolean/int/float/text),
-notes, created_at
-```
+### `goal_progress_events` — Planned (was previously `habit_logs`)
 
-### `goal_progress_events` — Planned
+### `goal_progress_events` — Planned (was previously `habit_logs`)
 Links journal entries to goals. Does not exist yet.
 ```
 id, user_id, goal_id (FK user_goals), entry_id (FK journal_entries),

@@ -19,6 +19,9 @@ const OB_STRESSOR_FREQUENCIES = [
 const OB_HABIT_FREQUENCIES = ['daily','3x_per_week','5x_per_week','weekly','as_needed'];
 const OB_TRACKING_TYPES    = ['boolean','numeric','duration','text'];
 
+// Weekday labels matching Python's date.weekday() — Monday = 0.
+const WEEKDAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSTANTS & CONFIG
 // ═══════════════════════════════════════════════════════════════════════════
@@ -193,6 +196,43 @@ const api = {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || `Could not save onboarding (${res.status})`);
     }
+    return res.json();
+  },
+
+  async getTodayCheckIns(localDate) {
+    // Pass the browser's local date so server timezone doesn't matter
+    const dateParam = localDate ? `?date=${localDate}` : '';
+    const res = await fetch(`${API_BASE}/check-ins/today${dateParam}`, { headers: authHeaders() });
+    if (res.status === 401) { handleUnauthorized(); return null; }
+    if (!res.ok) throw new Error(`Could not load check-ins (${res.status})`);
+    return res.json();
+  },
+
+  async createCheckIn(habit_id, date, completed, note = null) {
+    const res = await fetch(`${API_BASE}/check-ins`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ habit_id, date, completed, note }),
+    });
+    if (res.status === 401) { handleUnauthorized(); return null; }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Could not save check-in (${res.status})`);
+    }
+    return res.json();
+  },
+
+  async updateCheckIn(log_id, completed, note) {
+    const body = {};
+    if (completed !== undefined) body.completed = completed;
+    if (note      !== undefined) body.note      = note;
+    const res = await fetch(`${API_BASE}/check-ins/${log_id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 401) { handleUnauthorized(); return null; }
+    if (!res.ok) throw new Error(`Could not update check-in (${res.status})`);
     return res.json();
   },
 };
@@ -378,14 +418,11 @@ async function showNewEntry() {
   showView('new-entry');
   document.getElementById('content').focus();
 
-  // Fetch mood-tailored prompts in the background.
-  // Silently falls back to the default labels already set by resetForm().
-  try {
-    const data = await api.getPrompts();
-    applyPrompts(data);
-  } catch {
-    // No-op — default labels are already in place
-  }
+  // Run both fetches in parallel — neither blocks the other.
+  const [_, __] = await Promise.allSettled([
+    api.getPrompts().then(data => applyPrompts(data)).catch(() => {}),
+    loadTodayCheckIns(),
+  ]);
 }
 
 /**
@@ -433,7 +470,7 @@ async function handleSmartPrompts() {
     const moodEl  = document.getElementById('prompt-context-mood');
     const similarMsg = data.similar_count > 0
       ? `based on today's entry + ${data.similar_count} similar past ${data.similar_count === 1 ? 'moment' : 'moments'}`
-      : 'based on today's entry';
+      : "based on today's entry";
     moodEl.textContent = `✦ Smart prompts ${similarMsg}`;
     banner.classList.remove('hidden');
 
@@ -444,6 +481,199 @@ async function handleSmartPrompts() {
   } finally {
     btn.disabled = false;
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GOAL CHECK-IN
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Per-habit state keyed by habit_id: { log_id, completed, date, item }
+// item is the original TodayCheckIn object — kept so cards can be re-rendered.
+const checkInState = {};
+
+function localDateString() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function scheduleLabel(scheduleType, scheduleDays) {
+  if (scheduleType === 'daily') return 'Daily';
+  if (scheduleType === 'x_per_week') return 'A few times/week';
+  if (scheduleType === 'specific_days' && scheduleDays) {
+    return scheduleDays.split(',').map(d => WEEKDAY_LABELS[parseInt(d.trim(), 10)]).join(' · ');
+  }
+  return '';
+}
+
+function renderCheckInCard(item) {
+  const { habit_id, habit_name, schedule_type, schedule_days, log } = item;
+  const label = scheduleLabel(schedule_type, schedule_days);
+
+  // Use the latest in-memory state if available, else fall back to the server log
+  const s         = checkInState[habit_id];
+  const answered  = s ? s.completed !== null : (log !== null && log !== undefined);
+  const completed = answered
+    ? (s && s.completed !== null ? s.completed : log?.completed ?? false)
+    : null;
+  const existingNote = log?.note || '';
+
+  const scheduleBadge = label
+    ? `<span class="text-[11px] text-stone-400 font-medium">${escapeHtml(label)}</span>`
+    : '';
+
+  const yesActive = answered &&  completed;
+  const noActive  = answered && !completed;
+  const answerButtons = `
+    <div class="flex gap-2">
+      <button type="button" class="checkin-yes-btn text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-all duration-150 ${yesActive ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-stone-50 border-stone-200 text-stone-600 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700'}"
+        data-habit-id="${habit_id}">Yes</button>
+      <button type="button" class="checkin-no-btn text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-all duration-150 ${noActive ? 'bg-red-50 border-red-200 text-red-600' : 'bg-stone-50 border-stone-200 text-stone-600 hover:bg-red-50 hover:border-red-200 hover:text-red-600'}"
+        data-habit-id="${habit_id}">Not today</button>
+    </div>`;
+
+  const notesField = answered ? `
+    <div class="mt-1">
+      <textarea class="checkin-note-input w-full bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-[13px] text-stone-800 placeholder-stone-300 resize-none focus:outline-none focus:ring-2 focus:ring-stone-200 transition-all" rows="2"
+        placeholder="${!completed ? 'What got in the way? (optional)' : 'Any notes? (optional)'}"
+        data-habit-id="${habit_id}">${escapeHtml(existingNote)}</textarea>
+    </div>` : '';
+
+  return `
+    <div class="checkin-card bg-white rounded-xl border border-stone-200 px-4 py-3.5 space-y-2.5" data-habit-id="${habit_id}">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <p class="text-[14px] font-semibold text-stone-800">${escapeHtml(habit_name)}</p>
+          ${scheduleBadge}
+        </div>
+        ${answered ? `<span class="text-[11px] ${completed ? 'text-emerald-600' : 'text-stone-400'} font-medium mt-0.5">${completed ? '✓ Done' : 'Skipped'}</span>` : ''}
+      </div>
+      ${answered ? '' : `<p class="text-[12px] text-stone-500">Did you complete it today?</p>`}
+      ${answerButtons}
+      ${notesField}
+    </div>`;
+}
+
+async function loadTodayCheckIns() {
+  const section  = document.getElementById('goal-checkin-section');
+  const loading  = document.getElementById('checkin-loading');
+  const empty    = document.getElementById('checkin-empty');
+  const list     = document.getElementById('checkin-list');
+
+  section.classList.remove('hidden');
+  loading.classList.remove('hidden');
+  empty.classList.add('hidden');
+  list.classList.add('hidden');
+  list.innerHTML = '';
+
+  // Clear any previous session's in-memory state
+  for (const k in checkInState) delete checkInState[k];
+
+  try {
+    const today = localDateString();
+    const data  = await api.getTodayCheckIns(today);
+    if (!data) return;
+
+    loading.classList.add('hidden');
+
+    if (data.check_ins.length === 0) {
+      empty.classList.remove('hidden');
+      return;
+    }
+
+    // Seed checkInState from any server-side logs already recorded today
+    for (const item of data.check_ins) {
+      checkInState[item.habit_id] = {
+        log_id:    item.log?.id    || null,
+        completed: item.log?.completed ?? null,
+        date:      today,
+        item,
+      };
+    }
+
+    list.innerHTML = data.check_ins.map(renderCheckInCard).join('');
+    list.classList.remove('hidden');
+
+    // Wire up note textarea debounced save
+    list.querySelectorAll('.checkin-note-input').forEach(ta => {
+      let timer;
+      ta.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => saveCheckInNote(ta.dataset.habitId, ta.value.trim()), 800);
+      });
+    });
+  } catch {
+    loading.classList.add('hidden');
+    // Silently hide the section — check-ins are optional, don't break the journal
+    section.classList.add('hidden');
+  }
+}
+
+async function handleCheckIn(habitId, completed) {
+  const today = localDateString();
+  const list  = document.getElementById('checkin-list');
+  const s     = checkInState[habitId];
+  if (!s) return;
+
+  try {
+    const log = await api.createCheckIn(habitId, today, completed);
+    if (!log) return;
+
+    s.log_id    = log.id;
+    s.completed = completed;
+    if (s.item) s.item.log = log;
+
+    // Re-render just this card using the stored item data
+    const card = list.querySelector(`.checkin-card[data-habit-id="${habitId}"]`);
+    if (!card) return;
+
+    const newHtml = document.createElement('div');
+    newHtml.innerHTML = renderCheckInCard(s.item || {
+      habit_id:             habitId,
+      habit_name:           card.querySelector('p')?.textContent?.trim() || '',
+      schedule_type:        s.item?.schedule_type || '',
+      schedule_days:        s.item?.schedule_days || null,
+      positive_or_negative: 'positive',
+      log,
+    });
+    card.replaceWith(newHtml.firstElementChild);
+
+    // Re-wire note textarea for the replaced card
+    const newCard  = list.querySelector(`.checkin-card[data-habit-id="${habitId}"]`);
+    const noteArea = newCard?.querySelector('.checkin-note-input');
+    if (noteArea) {
+      let timer;
+      noteArea.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => saveCheckInNote(habitId, noteArea.value.trim()), 800);
+      });
+    }
+  } catch {
+    showToast('Could not save check-in — try again.', 'error');
+  }
+}
+
+async function saveCheckInNote(habitId, note) {
+  const s = checkInState[habitId];
+  if (!s) return;
+  try {
+    await api.updateCheckIn(s.log_id, undefined, note);
+  } catch {
+    // Silently fail — note save is best-effort
+  }
+}
+
+function resetCheckIns() {
+  const section = document.getElementById('goal-checkin-section');
+  const loading = document.getElementById('checkin-loading');
+  const empty   = document.getElementById('checkin-empty');
+  const list    = document.getElementById('checkin-list');
+
+  section.classList.add('hidden');
+  loading.classList.remove('hidden');
+  empty.classList.add('hidden');
+  list.classList.add('hidden');
+  list.innerHTML = '';
+  for (const k in checkInState) delete checkInState[k];
 }
 
 function showEntryDetail(entry) {
@@ -655,6 +885,8 @@ function resetForm() {
     smartBtn.disabled    = true;
     smartBtn.textContent = '✦ Generate smart prompts';
   }
+
+  resetCheckIns();
 }
 
 function initMoodSelector() {
@@ -876,6 +1108,20 @@ function renderStressors() {
 // ── Habit cards ────────────────────────────────────────────────────────────
 
 function renderHabitCard(h, idx) {
+  const schedType  = h.schedule_type  || 'unscheduled';
+  const schedDays  = h.schedule_days  || '';
+  const activeDays = schedDays ? schedDays.split(',').map(d => d.trim()) : [];
+
+  const dayPickerHtml = `
+    <div class="ob-day-picker flex flex-wrap gap-1.5 mt-2 ${schedType !== 'specific_days' ? 'hidden' : ''}">
+      ${WEEKDAY_LABELS.map((d, i) => `
+        <button type="button"
+          class="ob-day-btn text-[11px] font-medium px-2.5 py-1 rounded-md border transition-all duration-150 ${activeDays.includes(String(i)) ? 'bg-stone-900 text-white border-stone-900' : 'bg-stone-50 text-stone-500 border-stone-200 hover:border-stone-400 hover:text-stone-700'}"
+          data-day="${i}">${d}</button>
+      `).join('')}
+      <input type="hidden" name="schedule_days" value="${escapeHtml(schedDays)}" />
+    </div>`;
+
   return `
     <div class="ob-card bg-white rounded-xl border border-stone-200 p-4 space-y-3" data-idx="${idx}">
       <div class="flex justify-between items-center">
@@ -886,6 +1132,17 @@ function renderHabitCard(h, idx) {
       <div class="grid grid-cols-2 gap-3">
         <div>${obLabel('Frequency')}${obSelect(OB_HABIT_FREQUENCIES, h.desired_frequency, 'desired_frequency')}</div>
         <div>${obLabel('Type')}${obSelect(OB_TRACKING_TYPES, h.tracking_type, 'tracking_type')}</div>
+      </div>
+      <div>
+        ${obLabel('When?')}
+        <select name="schedule_type"
+          class="w-full bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-[13px] text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-200 transition-all">
+          <option value="unscheduled" ${schedType === 'unscheduled'    ? 'selected' : ''}>Not scheduled yet</option>
+          <option value="daily"       ${schedType === 'daily'           ? 'selected' : ''}>Daily</option>
+          <option value="specific_days" ${schedType === 'specific_days' ? 'selected' : ''}>Specific days</option>
+          <option value="x_per_week"  ${schedType === 'x_per_week'     ? 'selected' : ''}>A few times/week</option>
+        </select>
+        ${dayPickerHtml}
       </div>
       <div>
         ${obLabel('Positive or negative habit?')}
@@ -906,17 +1163,43 @@ function renderHabitCard(h, idx) {
 }
 
 function syncHabitsFromDOM() {
-  obState.habits = [...document.querySelectorAll('#ob-habits-list .ob-card')].map((card, idx) => ({
-    name:                 card.querySelector('[name=name]').value.trim(),
-    desired_frequency:    card.querySelector('[name=desired_frequency]').value,
-    tracking_type:        card.querySelector('[name=tracking_type]').value,
-    positive_or_negative: card.querySelector(`[name=pol_${idx}]:checked`)?.value || 'positive',
-  }));
+  obState.habits = [...document.querySelectorAll('#ob-habits-list .ob-card')].map((card, idx) => {
+    const schedType  = card.querySelector('[name=schedule_type]')?.value || 'unscheduled';
+    const schedDaysEl = card.querySelector('[name=schedule_days]');
+    const schedDays  = schedType === 'specific_days' ? (schedDaysEl?.value || '') : '';
+    return {
+      name:                 card.querySelector('[name=name]').value.trim(),
+      desired_frequency:    card.querySelector('[name=desired_frequency]').value,
+      tracking_type:        card.querySelector('[name=tracking_type]').value,
+      positive_or_negative: card.querySelector(`[name=pol_${idx}]:checked`)?.value || 'positive',
+      schedule_type:        schedType,
+      schedule_days:        schedDays || null,
+    };
+  });
+}
+
+function applyDayBtnStyle(btn, active) {
+  if (active) {
+    btn.className = btn.className
+      .replace('bg-stone-50', 'bg-stone-900')
+      .replace('text-stone-500', 'text-white')
+      .replace('border-stone-200', 'border-stone-900');
+  } else {
+    btn.className = btn.className
+      .replace('bg-stone-900', 'bg-stone-50')
+      .replace('text-white', 'text-stone-500')
+      .replace('border-stone-900', 'border-stone-200');
+  }
 }
 
 function renderHabits() {
   document.getElementById('ob-habits-list').innerHTML =
     obState.habits.map(renderHabitCard).join('');
+  // Sync data-active attribute with the initially-active day buttons
+  document.querySelectorAll('#ob-habits-list .ob-day-btn').forEach(btn => {
+    const isActive = btn.classList.contains('bg-stone-900');
+    btn.dataset.active = isActive ? '1' : '0';
+  });
 }
 
 // ── Step navigation ────────────────────────────────────────────────────────
@@ -1072,7 +1355,7 @@ function initOnboarding() {
   document.getElementById('ob-add-habit').addEventListener('click', () => {
     if (obState.habits.length >= 8) { showObError('ob-habits-error', 'Maximum 8 habits.'); return; }
     syncHabitsFromDOM();
-    obState.habits.push({ name: '', desired_frequency: 'daily', positive_or_negative: 'positive', tracking_type: 'boolean' });
+    obState.habits.push({ name: '', desired_frequency: 'daily', positive_or_negative: 'positive', tracking_type: 'boolean', schedule_type: 'unscheduled', schedule_days: null });
     renderHabits();
   });
 
@@ -1088,11 +1371,40 @@ function initOnboarding() {
         desired_frequency:    chip.dataset.freq,
         positive_or_negative: chip.dataset.pol,
         tracking_type:        chip.dataset.type,
+        schedule_type:        'unscheduled',
+        schedule_days:        null,
       });
       renderHabits();
       chip.classList.add('opacity-40', 'cursor-not-allowed');
       chip.disabled = true;
     });
+  });
+
+  // Schedule type change — show/hide day picker (delegated on the habits list)
+  document.getElementById('ob-habits-list').addEventListener('change', e => {
+    const select = e.target.closest('[name=schedule_type]');
+    if (!select) return;
+    const card     = select.closest('.ob-card');
+    const picker   = card.querySelector('.ob-day-picker');
+    if (picker) picker.classList.toggle('hidden', select.value !== 'specific_days');
+  });
+
+  // Day button toggles (delegated on the habits list)
+  document.getElementById('ob-habits-list').addEventListener('click', e => {
+    const dayBtn = e.target.closest('.ob-day-btn');
+    if (!dayBtn) return;
+    const isActive = dayBtn.dataset.active === '1';
+    dayBtn.dataset.active = isActive ? '0' : '1';
+    applyDayBtnStyle(dayBtn, !isActive);
+
+    // Update the hidden input from all active buttons in this card
+    const card       = dayBtn.closest('.ob-card');
+    const activeDays = [...card.querySelectorAll('.ob-day-btn[data-active="1"]')]
+      .map(b => b.dataset.day)
+      .sort((a, b) => parseInt(a) - parseInt(b))
+      .join(',');
+    const hiddenInput = card.querySelector('[name=schedule_days]');
+    if (hiddenInput) hiddenInput.value = activeDays;
   });
 
   // Remove buttons (delegated)
@@ -1170,6 +1482,14 @@ function init() {
     if (smartHint) smartHint.classList.toggle('invisible', ready);
   });
   smartBtn.addEventListener('click', handleSmartPrompts);
+
+  // Goal Check-In — delegated click handler for Yes / Not today buttons
+  document.getElementById('checkin-list').addEventListener('click', e => {
+    const yesBtn = e.target.closest('.checkin-yes-btn');
+    const noBtn  = e.target.closest('.checkin-no-btn');
+    if (yesBtn) handleCheckIn(yesBtn.dataset.habitId, true);
+    if (noBtn)  handleCheckIn(noBtn.dataset.habitId,  false);
+  });
 
   // Check for a stored token and validate it; show auth screen if none/expired.
   bootstrapAuth();

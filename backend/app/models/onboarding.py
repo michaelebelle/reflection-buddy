@@ -83,4 +83,16 @@ class UserHabit(Base):
     desired_frequency    = Column(String(50),  nullable=False)  # daily | 3x_per_week | …
     positive_or_negative = Column(String(20),  nullable=False)  # positive | negative
     tracking_type        = Column(String(20),  nullable=False)  # boolean | numeric | duration | text
-    created_at           = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+    # Scheduling — added via startup migration for existing rows; nullable for backward compat.
+    # schedule_type: "daily" | "specific_days" | "x_per_week" | "unscheduled"
+    # schedule_days: comma-separated weekday ints, Mon=0..Sun=6, e.g. "0,2,5" for Mon/Wed/Sat.
+    #                Only populated when schedule_type == "specific_days".
+    schedule_type = Column(String(20), nullable=True)
+    schedule_days = Column(String(20), nullable=True)
+
+    # Optional link to a parent goal — SET NULL if the goal is deleted/replaced.
+    # Enables the future Goal → Habits → Check-ins hierarchy.
+    goal_id = Column(String(36), ForeignKey("user_goals.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)

@@ -1,5 +1,5 @@
 # ROADMAP.md
-> Last updated: 2026-06-01
+> Last updated: 2026-08-23
 
 ---
 
@@ -53,6 +53,20 @@
 | Onboarding gate (new users redirected) | ✅ Done | `bootstrapAuth()` checks onboarding status |
 | `build_llm_context()` formatter | ✅ Done | Formats onboarding as LLM-injectable text block |
 | Onboarding context injected into smart prompts | ✅ Done | `get_smart_prompts()` calls `build_llm_context()` |
+| Habit schedule UI in onboarding wizard | ✅ Done | schedule_type selector + day-picker toggle buttons (Mon–Sun) |
+
+### Phase 3.5 — Goal Check-In ✅
+
+| Feature | Status | Notes |
+|---|---|---|
+| `schedule_type` + `schedule_days` on `user_habits` | ✅ Done | daily, specific_days, x_per_week, unscheduled |
+| `habit_logs` table (UNIQUE user_id+habit_id+date) | ✅ Done | `models/checkin.py` |
+| `_is_due()` deterministic scheduling logic | ✅ Done | Service layer only — no LLM involved |
+| GET /check-ins/today (with optional ?date= param) | ✅ Done | Accepts browser local date to avoid timezone skew |
+| POST /check-ins (idempotent upsert) | ✅ Done | Safe to call multiple times for same habit+date |
+| PUT /check-ins/{id} (partial update) | ✅ Done | Update completed flag and/or note |
+| Goal Check-In UI section (below journal form) | ✅ Done | Shows only today's due habits; Yes/Not today + optional notes |
+| Per-user isolation on check-ins | ✅ Done | All queries filtered by user_id; habit ownership verified on POST |
 
 ---
 
@@ -107,14 +121,14 @@
 
 ---
 
-### Phase 5 — Habit Tracking & Insights
+### Phase 5 — Habit Analytics & Insights
 
-**Goal:** Daily habit logging + AI-generated behavioural insights.
+**Goal:** Streaks, correlations, and AI-generated behavioural insights on top of the check-in data that now exists.
 
 | Feature | Status |
 |---|---|
-| Daily habit check-in UI | Planned |
-| `habit_logs` table (boolean/numeric/duration/text) | Planned |
+| Daily habit check-in UI | ✅ Done (Phase 3.5) |
+| `habit_logs` table | ✅ Done (Phase 3.5) |
 | Streak calculation | Planned |
 | Habit-mood correlation analysis | Planned |
 | Weekly reflection summary (AI-generated) | Planned |
@@ -125,7 +139,7 @@
 | Recurring theme detection | Planned |
 | AI coaching recommendations | Planned |
 
-*Foundation: `user_habits` table with name, frequency, tracking_type already populated. All baseline data in `user_onboarding`.*
+*Foundation: `habit_logs` table live with daily check-ins. `user_habits` has scheduling fields. All baseline data in `user_onboarding`.*
 
 ---
 

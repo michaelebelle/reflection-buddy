@@ -82,6 +82,15 @@ class HabitCreate(BaseModel):
     desired_frequency:    HabitFrequency
     positive_or_negative: str = Field(..., pattern="^(positive|negative)$")
     tracking_type:        TrackingType
+    schedule_type:        str = Field(
+        default="unscheduled",
+        pattern="^(daily|specific_days|x_per_week|unscheduled)$",
+    )
+    schedule_days:        Optional[str] = Field(
+        None,
+        description="Comma-separated weekdays 0=Mon..6=Sun, e.g. '0,2,5'. Only for specific_days.",
+    )
+    goal_id:              Optional[str] = None
 
 
 class BaselineRatings(BaseModel):
@@ -137,6 +146,9 @@ class HabitResponse(BaseModel):
     desired_frequency:    str
     positive_or_negative: str
     tracking_type:        str
+    schedule_type:        Optional[str]
+    schedule_days:        Optional[str]
+    goal_id:              Optional[str]
     created_at:           datetime
     model_config = {"from_attributes": True}
 

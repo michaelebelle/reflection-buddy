@@ -462,6 +462,33 @@
         </div>
 
       </form>
+
+      <!-- ── GOAL CHECK-IN ─────────────────────────────────────────────── -->
+      <div id="goal-checkin-section" class="hidden mt-10">
+
+        <!-- Section header -->
+        <div class="flex items-center gap-3 mb-5">
+          <div class="flex-1 h-px bg-stone-100"></div>
+          <span class="text-[11px] font-semibold text-stone-400 uppercase tracking-[0.08em] select-none">Goal Check-In</span>
+          <div class="flex-1 h-px bg-stone-100"></div>
+        </div>
+
+        <!-- Loading state -->
+        <div id="checkin-loading" class="flex items-center gap-2 py-3 text-stone-400">
+          <div class="w-4 h-4 border-[2px] border-stone-200 border-t-stone-400 rounded-full animate-spin"></div>
+          <span class="text-[13px]">Loading today's check-ins…</span>
+        </div>
+
+        <!-- Empty state (nothing scheduled today) -->
+        <div id="checkin-empty" class="hidden py-3">
+          <p class="text-[13px] text-stone-300">Nothing scheduled for today.</p>
+        </div>
+
+        <!-- Check-in cards — populated by JS -->
+        <div id="checkin-list" class="hidden space-y-3"></div>
+
+      </div>
+
     </div>
 
     <!-- ── ENTRY DETAIL ───────────────────────────────────────────────── -->
