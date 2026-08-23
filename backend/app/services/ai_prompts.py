@@ -245,3 +245,101 @@ No extra text, no markdown — just the JSON array."""
 
 # Module-level singleton — import and call directly from journal.py
 prompt_generator = ReflectionPromptGenerator()
+
+
+# ── Smart contextual prompts ───────────────────────────────────────────────
+
+SMART_SYSTEM_PROMPT = """You are a sharp, empathetic journaling coach who has read \
+this person's journal history.
+
+Your job: given what the user just wrote AND similar past entries they've written, \
+generate {count} follow-up reflection questions.
+
+Rules:
+- At least 1 question must directly follow up on something specific they wrote TODAY
+- If similar past entries exist, at least 1 question must reference a pattern or \
+  contrast between today and the past (e.g. "Last time you mentioned X — how does \
+  that compare to now?")
+- Questions should be open-ended, introspective, never yes/no
+- Never ask the obvious — push them to think deeper
+- Keep each question to one sentence
+- Match their emotional tone
+
+Respond with ONLY a valid JSON array of exactly {count} strings:
+["Question 1?", "Question 2?", "Question 3?", "Question 4?"]
+
+No extra text, no markdown."""
+
+
+def generate_smart_prompts(
+    current_content: str,
+    similar_entries: list[dict],
+    onboarding_context: str = "",
+    question_count: int = 4,
+) -> list[str]:
+    """Generate questions grounded in what the user just wrote + similar past entries.
+
+    Parameters
+    ----------
+    current_content:
+        The text the user has written so far in the current entry.
+    similar_entries:
+        List of dicts from ``semantic_search`` — keys: id, content, mood, created_at, similarity.
+        Pass an empty list if no embeddings exist yet.
+    onboarding_context:
+        Optional formatted string from ``build_llm_context()`` for personalisation.
+    question_count:
+        How many questions to return.
+    """
+    if not settings.anthropic_api_key:
+        return _DEFAULT_PROMPTS[:question_count]
+
+    try:
+        parts: list[str] = []
+
+        if onboarding_context:
+            parts.append("=== User context ===")
+            parts.append(onboarding_context)
+            parts.append("")
+
+        parts.append("=== What the user just wrote ===")
+        parts.append(current_content.strip())
+        parts.append("")
+
+        if similar_entries:
+            parts.append(f"=== {len(similar_entries)} similar past {'entry' if len(similar_entries) == 1 else 'entries'} ===")
+            for i, e in enumerate(similar_entries, 1):
+                date_str = e["created_at"].strftime("%b %d, %Y") if hasattr(e["created_at"], "strftime") else str(e["created_at"])[:10]
+                mood_str = f" [{e['mood']}]" if e.get("mood") else ""
+                parts.append(f"--- Past entry {i} ({date_str}{mood_str}) ---")
+                # Trim long entries so we don't blow the context window
+                parts.append(e["content"][:400] + ("…" if len(e["content"]) > 400 else ""))
+                parts.append("")
+        else:
+            parts.append("=== No similar past entries found yet ===")
+            parts.append("")
+
+        parts.append(f"Generate {question_count} reflection questions.")
+        user_message = "\n".join(parts)
+
+        import anthropic  # deferred import
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        system = SMART_SYSTEM_PROMPT.format(count=question_count)
+
+        message = client.messages.create(
+            model=prompt_generator.MODEL,
+            max_tokens=prompt_generator.MAX_TOKENS,
+            system=system,
+            messages=[{"role": "user", "content": user_message}],
+        )
+
+        for block in message.content:
+            if block.type == "text":
+                questions = prompt_generator._parse_questions(block.text)
+                if questions:
+                    return questions
+
+    except Exception:
+        logger.exception("Smart prompt generation failed — using defaults")
+
+    return _DEFAULT_PROMPTS[:question_count]

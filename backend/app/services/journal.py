@@ -6,7 +6,7 @@ from sqlalchemy import func, text
 from app.models.journal import JournalEntry
 from app.schemas.journal import JournalEntryCreate, JournalEntryUpdate
 from app.config import settings
-from app.services.ai_prompts import prompt_generator
+from app.services.ai_prompts import prompt_generator, generate_smart_prompts
 from app.services.embeddings import embedding_service
 
 logger = logging.getLogger(__name__)
@@ -246,6 +246,41 @@ def semantic_search(
         }
         for row in rows
     ]
+
+
+def get_smart_prompts(db: Session, user_id: str, content: str) -> dict:
+    """Generate contextual questions based on what the user is writing RIGHT NOW.
+
+    Flow:
+    1. Find past entries semantically similar to the current content
+    2. Pull the user's onboarding context (goals, stressors, baselines)
+    3. Ask Claude to generate questions that connect today to the past
+
+    Falls back gracefully at every step — always returns 4 questions.
+    """
+    # Step 1: find similar past entries (needs OPENAI_API_KEY + pgvector)
+    similar = semantic_search(db, user_id=user_id, query=content, limit=3)
+
+    # Step 2: pull onboarding context if available
+    onboarding_context = ""
+    try:
+        from app.services.onboarding import build_llm_context
+        onboarding_context = build_llm_context(db, user_id=user_id)
+    except Exception:
+        pass  # onboarding context is optional
+
+    # Step 3: generate smart questions
+    prompts = generate_smart_prompts(
+        current_content=content,
+        similar_entries=similar,
+        onboarding_context=onboarding_context,
+    )
+
+    return {
+        "prompts": prompts,
+        "similar_count": len(similar),
+        "source": "ai" if settings.anthropic_api_key else "default",
+    }
 
 
 # ── Future AI service hooks ────────────────────────────────────────────────

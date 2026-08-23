@@ -72,6 +72,16 @@ class SemanticSearchResponse(BaseModel):
     results: list[SemanticSearchResult]
 
 
+class SmartPromptRequest(BaseModel):
+    content: str = Field(..., min_length=10, description="What the user has written so far")
+
+
+class SmartPromptResponse(BaseModel):
+    prompts: list[str]
+    similar_count: int   # how many past entries were found and used
+    source: str          # "ai" | "default"
+
+
 class PromptResponse(BaseModel):
     """Reflection questions tailored to the writer's recent journal history."""
     mood_context: Optional[str]  # The mood that shaped these prompts (None = no mood found)

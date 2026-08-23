@@ -164,6 +164,17 @@ const api = {
     return res.json();
   },
 
+  async getSmartPrompts(content) {
+    const res = await fetch(`${API_BASE}/entries/prompts/smart`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ content }),
+    });
+    if (res.status === 401) { handleUnauthorized(); return null; }
+    if (!res.ok) throw new Error(`Could not generate smart prompts (${res.status})`);
+    return res.json();
+  },
+
   async getOnboarding() {
     const res = await fetch(`${API_BASE}/onboarding`, { headers: authHeaders() });
     if (res.status === 401) { handleUnauthorized(); return null; }
@@ -399,6 +410,42 @@ function applyPrompts(data) {
   }
 }
 
+async function handleSmartPrompts() {
+  const content = document.getElementById('content').value.trim();
+  if (!content || content.length < 10) return;
+
+  const btn = document.getElementById('btn-smart-prompts');
+  btn.disabled = true;
+  btn.textContent = '✦ Thinking…';
+
+  try {
+    const data = await api.getSmartPrompts(content);
+    if (!data) return;
+
+    // Apply the questions to the form labels
+    data.prompts.forEach((question, i) => {
+      const el = document.getElementById(QUESTION_LABEL_IDS[i]);
+      if (el) el.textContent = question;
+    });
+
+    // Update banner to show smart prompts are active
+    const banner  = document.getElementById('prompt-context-banner');
+    const moodEl  = document.getElementById('prompt-context-mood');
+    const similarMsg = data.similar_count > 0
+      ? `based on today's entry + ${data.similar_count} similar past ${data.similar_count === 1 ? 'moment' : 'moments'}`
+      : 'based on today's entry';
+    moodEl.textContent = `✦ Smart prompts ${similarMsg}`;
+    banner.classList.remove('hidden');
+
+    btn.textContent = '✦ Regenerate';
+  } catch (err) {
+    showToast('Could not generate smart prompts — try again.', 'error');
+    btn.textContent = '✦ Generate smart prompts';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function showEntryDetail(entry) {
   state.selectedEntry = entry;
   renderEntryDetail(entry);
@@ -601,6 +648,13 @@ function resetForm() {
     if (el) el.textContent = label;
   });
   document.getElementById('prompt-context-banner').classList.add('hidden');
+
+  // Reset smart prompts button
+  const smartBtn = document.getElementById('btn-smart-prompts');
+  if (smartBtn) {
+    smartBtn.disabled    = true;
+    smartBtn.textContent = '✦ Generate smart prompts';
+  }
 }
 
 function initMoodSelector() {
@@ -1105,6 +1159,17 @@ function init() {
   initEnergySlider();
   initKeyboard();
   initOnboarding();
+
+  // Smart prompts — enable button once the user has written enough
+  const contentArea = document.getElementById('content');
+  const smartBtn    = document.getElementById('btn-smart-prompts');
+  const smartHint = smartBtn.nextElementSibling;
+  contentArea.addEventListener('input', () => {
+    const ready = contentArea.value.trim().length >= 10;
+    smartBtn.disabled = !ready;
+    if (smartHint) smartHint.classList.toggle('invisible', ready);
+  });
+  smartBtn.addEventListener('click', handleSmartPrompts);
 
   // Check for a stored token and validate it; show auth screen if none/expired.
   bootstrapAuth();

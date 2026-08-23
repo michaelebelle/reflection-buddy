@@ -10,6 +10,8 @@ from app.schemas.journal import (
     JournalEntryList,
     PromptResponse,
     SemanticSearchResponse,
+    SmartPromptRequest,
+    SmartPromptResponse,
 )
 from app.services import journal as journal_service
 from app.services.auth import get_current_user
@@ -45,6 +47,20 @@ def search_entries(
     """
     results = journal_service.semantic_search(db, user_id=current_user.id, query=q, limit=limit)
     return SemanticSearchResponse(query=q, results=results)
+
+
+@router.post("/prompts/smart", response_model=SmartPromptResponse)
+def get_smart_prompts(
+    body: SmartPromptRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate reflection questions grounded in what the user is writing right now.
+
+    Finds semantically similar past entries and asks Claude to generate questions
+    that follow up on the current entry AND connect it to patterns from the past.
+    """
+    return journal_service.get_smart_prompts(db, user_id=current_user.id, content=body.content)
 
 
 @router.get("/prompts", response_model=PromptResponse)
