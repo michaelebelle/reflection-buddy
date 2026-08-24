@@ -6,7 +6,7 @@ from sqlalchemy import func, text
 from app.models.journal import JournalEntry
 from app.schemas.journal import JournalEntryCreate, JournalEntryUpdate
 from app.config import settings
-from app.services.ai_prompts import prompt_generator, generate_smart_prompts
+from app.services.ai_prompts import prompt_generator, generate_smart_prompts, generate_dashboard_prompts
 from app.services.embeddings import embedding_service
 
 logger = logging.getLogger(__name__)
@@ -279,6 +279,39 @@ def get_smart_prompts(db: Session, user_id: str, content: str) -> dict:
     return {
         "prompts": prompts,
         "similar_count": len(similar),
+        "source": "ai" if settings.anthropic_api_key else "default",
+    }
+
+
+def get_dashboard_prompts(db: Session, user_id: str) -> dict:
+    """Return 2-3 proactive prompts for the dashboard home page.
+
+    Uses only recent entries + onboarding context — no semantic search —
+    to keep the dashboard load fast and cheap.
+    """
+    recent_entries = (
+        db.query(JournalEntry)
+        .filter(JournalEntry.user_id == user_id)
+        .order_by(JournalEntry.created_at.desc())
+        .limit(3)
+        .all()
+    )
+
+    onboarding_context = ""
+    try:
+        from app.services.onboarding import build_llm_context
+        onboarding_context = build_llm_context(db, user_id=user_id)
+    except Exception:
+        pass
+
+    prompts = generate_dashboard_prompts(
+        recent_entries=recent_entries,
+        onboarding_context=onboarding_context,
+        question_count=3,
+    )
+
+    return {
+        "prompts": prompts,
         "source": "ai" if settings.anthropic_api_key else "default",
     }
 

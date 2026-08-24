@@ -82,6 +82,12 @@ const state = {
   authMode: 'login',     // 'login' | 'register'
 };
 
+// Shared dashboard cache — populated on showDashboard(), reused by showNewEntry()
+const dashboardCache = {
+  checkIns: null,       // TodayCheckIn[] from last dashboard load
+  cacheDate: null,      // YYYY-MM-DD string — invalidate if day changes
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 // API LAYER
 // Future: swap these for an SDK or add auth headers here without touching UI code
@@ -233,6 +239,56 @@ const api = {
     });
     if (res.status === 401) { handleUnauthorized(); return null; }
     if (!res.ok) throw new Error(`Could not update check-in (${res.status})`);
+    return res.json();
+  },
+
+  async getDashboardPrompts() {
+    const res = await fetch(`${API_BASE}/entries/prompts/dashboard`, { headers: authHeaders() });
+    if (res.status === 401) { handleUnauthorized(); return null; }
+    if (!res.ok) throw new Error(`Could not load dashboard prompts (${res.status})`);
+    return res.json();
+  },
+
+  async getGoals(status = null) {
+    const qs = status ? `?status=${status}` : '';
+    const res = await fetch(`${API_BASE}/goals${qs}`, { headers: authHeaders() });
+    if (res.status === 401) { handleUnauthorized(); return null; }
+    if (!res.ok) throw new Error(`Could not load goals (${res.status})`);
+    return res.json();
+  },
+
+  async createGoal(data) {
+    const res = await fetch(`${API_BASE}/goals`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(data),
+    });
+    if (res.status === 401) { handleUnauthorized(); return null; }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Could not create goal (${res.status})`);
+    }
+    return res.json();
+  },
+
+  async updateGoal(id, data) {
+    const res = await fetch(`${API_BASE}/goals/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(data),
+    });
+    if (res.status === 401) { handleUnauthorized(); return null; }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Could not update goal (${res.status})`);
+    }
+    return res.json();
+  },
+
+  async getGoalProgress() {
+    const res = await fetch(`${API_BASE}/goals/progress`, { headers: authHeaders() });
+    if (res.status === 401) { handleUnauthorized(); return null; }
+    if (!res.ok) throw new Error(`Could not load goal progress (${res.status})`);
     return res.json();
   },
 };
@@ -410,6 +466,7 @@ async function bootstrapAuth() {
 
 function showDashboard() {
   showView('dashboard');
+  loadDashboardData();
   loadEntries();
 }
 
@@ -418,10 +475,15 @@ async function showNewEntry() {
   showView('new-entry');
   document.getElementById('content').focus();
 
-  // Run both fetches in parallel — neither blocks the other.
-  const [_, __] = await Promise.allSettled([
+  const today = localDateString();
+  const cacheValid = dashboardCache.checkIns !== null && dashboardCache.cacheDate === today;
+
+  // Run fetches in parallel — neither blocks the other.
+  await Promise.allSettled([
     api.getPrompts().then(data => applyPrompts(data)).catch(() => {}),
-    loadTodayCheckIns(),
+    cacheValid
+      ? renderNewEntryCheckIns(dashboardCache.checkIns, today)
+      : loadTodayCheckIns(),
   ]);
 }
 
@@ -481,6 +543,147 @@ async function handleSmartPrompts() {
   } finally {
     btn.disabled = false;
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DASHBOARD DATA LOADING
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function loadDashboardData() {
+  // Run all three sections in parallel
+  await Promise.allSettled([
+    loadDashboardPrompts(),
+    loadDashboardCommitments(),
+    loadDashboardGoalProgress(),
+  ]);
+}
+
+async function loadDashboardPrompts() {
+  const section = document.getElementById('dashboard-prompts-section');
+  const loading = document.getElementById('dashboard-prompts-loading');
+  const list    = document.getElementById('dashboard-prompts-list');
+
+  section.classList.remove('hidden');
+  loading.classList.remove('hidden');
+  list.classList.add('hidden');
+  list.innerHTML = '';
+
+  try {
+    const data = await api.getDashboardPrompts();
+    if (!data) return;
+
+    loading.classList.add('hidden');
+
+    list.innerHTML = data.prompts.map(prompt => `
+      <div class="bg-white rounded-xl border border-stone-200 px-4 py-3.5 shadow-sm">
+        <p class="text-[14px] text-stone-700 leading-relaxed">${escapeHtml(prompt)}</p>
+        <button type="button" class="dashboard-prompt-btn mt-2.5 text-[12px] font-medium text-stone-400 hover:text-stone-700 transition-colors"
+          data-prompt="${escapeHtml(prompt)}">
+          Start reflecting →
+        </button>
+      </div>`).join('');
+    list.classList.remove('hidden');
+  } catch {
+    loading.classList.add('hidden');
+    // Silently hide — prompts are an enhancement, not critical
+  }
+}
+
+async function loadDashboardCommitments() {
+  const section = document.getElementById('dashboard-commitments-section');
+  const loading = document.getElementById('dashboard-commitments-loading');
+  const empty   = document.getElementById('dashboard-commitments-empty');
+  const list    = document.getElementById('dashboard-commitments-list');
+
+  section.classList.remove('hidden');
+  loading.classList.remove('hidden');
+  empty.classList.add('hidden');
+  list.classList.add('hidden');
+  list.innerHTML = '';
+
+  const today = localDateString();
+
+  try {
+    const data = await api.getTodayCheckIns(today);
+    if (!data) return;
+
+    // Cache for reuse when opening New Entry
+    dashboardCache.checkIns  = data.check_ins;
+    dashboardCache.cacheDate = today;
+
+    // Seed checkInState
+    for (const item of data.check_ins) {
+      checkInState[item.habit_id] = {
+        log_id:    item.log?.id    || null,
+        completed: item.log?.completed ?? null,
+        date:      today,
+        item,
+      };
+    }
+
+    loading.classList.add('hidden');
+
+    if (data.check_ins.length === 0) {
+      empty.classList.remove('hidden');
+      return;
+    }
+
+    list.innerHTML = data.check_ins.map(item => renderCheckInCard(item)).join('');
+    list.classList.remove('hidden');
+
+    wireCheckInNotes(list);
+  } catch {
+    loading.classList.add('hidden');
+    section.classList.add('hidden');
+  }
+}
+
+async function loadDashboardGoalProgress() {
+  const section = document.getElementById('dashboard-goals-section');
+  const list    = document.getElementById('dashboard-goals-list');
+
+  try {
+    const data = await api.getGoalProgress();
+    if (!data || data.goals.length === 0) return;
+
+    section.classList.remove('hidden');
+    list.innerHTML = data.goals.map(g => renderGoalProgressCard(g)).join('');
+  } catch {
+    // Silently skip — goal progress is an enhancement
+  }
+}
+
+function renderGoalProgressCard(g) {
+  const pct = Math.round(g.progress_pct);
+  const hasTarget = g.target_per_week > 0;
+  const progressBar = hasTarget ? `
+    <div class="mt-3">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-[11px] text-stone-400">${g.completed_this_week} / ${g.target_per_week} this week</span>
+        <span class="text-[11px] font-semibold text-stone-600">${pct}%</span>
+      </div>
+      <div class="w-full bg-stone-100 rounded-full h-1.5">
+        <div class="bg-stone-900 h-1.5 rounded-full transition-all duration-300" style="width:${pct}%"></div>
+      </div>
+    </div>` : '';
+
+  const endLabel = g.end_date
+    ? `<span class="text-[11px] text-stone-300">Ends ${g.end_date}</span>`
+    : '';
+
+  const categoryLabel = g.goal_category.replace(/_/g, ' ');
+
+  return `
+    <div class="bg-white rounded-xl border border-stone-200 px-4 py-3.5 shadow-sm">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <span class="text-[11px] font-semibold text-stone-400 uppercase tracking-[0.07em]">${escapeHtml(categoryLabel)}</span>
+          <p class="text-[14px] font-semibold text-stone-800 mt-0.5">${escapeHtml(g.goal_title)}</p>
+        </div>
+        ${endLabel}
+      </div>
+      ${progressBar}
+    </div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -553,6 +756,35 @@ function renderCheckInCard(item) {
     </div>`;
 }
 
+function wireCheckInNotes(container) {
+  container.querySelectorAll('.checkin-note-input').forEach(ta => {
+    let timer;
+    ta.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => saveCheckInNote(ta.dataset.habitId, ta.value.trim()), 800);
+    });
+  });
+}
+
+async function renderNewEntryCheckIns(checkIns, today) {
+  const section = document.getElementById('goal-checkin-section');
+  const loading = document.getElementById('checkin-loading');
+  const empty   = document.getElementById('checkin-empty');
+  const list    = document.getElementById('checkin-list');
+
+  section.classList.remove('hidden');
+  loading.classList.add('hidden');
+
+  if (checkIns.length === 0) {
+    empty.classList.remove('hidden');
+    return;
+  }
+
+  list.innerHTML = checkIns.map(renderCheckInCard).join('');
+  list.classList.remove('hidden');
+  wireCheckInNotes(list);
+}
+
 async function loadTodayCheckIns() {
   const section  = document.getElementById('goal-checkin-section');
   const loading  = document.getElementById('checkin-loading');
@@ -592,15 +824,7 @@ async function loadTodayCheckIns() {
 
     list.innerHTML = data.check_ins.map(renderCheckInCard).join('');
     list.classList.remove('hidden');
-
-    // Wire up note textarea debounced save
-    list.querySelectorAll('.checkin-note-input').forEach(ta => {
-      let timer;
-      ta.addEventListener('input', () => {
-        clearTimeout(timer);
-        timer = setTimeout(() => saveCheckInNote(ta.dataset.habitId, ta.value.trim()), 800);
-      });
-    });
+    wireCheckInNotes(list);
   } catch {
     loading.classList.add('hidden');
     // Silently hide the section — check-ins are optional, don't break the journal
@@ -610,42 +834,50 @@ async function loadTodayCheckIns() {
 
 async function handleCheckIn(habitId, completed) {
   const today = localDateString();
-  const list  = document.getElementById('checkin-list');
   const s     = checkInState[habitId];
   if (!s) return;
 
   try {
-    const log = await api.createCheckIn(habitId, today, completed);
+    const log = s.log_id
+      ? await api.updateCheckIn(s.log_id, completed, undefined)
+      : await api.createCheckIn(habitId, today, completed);
     if (!log) return;
 
     s.log_id    = log.id;
     s.completed = completed;
     if (s.item) s.item.log = log;
 
-    // Re-render just this card using the stored item data
-    const card = list.querySelector(`.checkin-card[data-habit-id="${habitId}"]`);
-    if (!card) return;
+    // Re-render this card in every list that contains it
+    const containers = [
+      document.getElementById('checkin-list'),
+      document.getElementById('dashboard-commitments-list'),
+    ];
+    for (const list of containers) {
+      if (!list) continue;
+      const card = list.querySelector(`.checkin-card[data-habit-id="${habitId}"]`);
+      if (!card) continue;
 
-    const newHtml = document.createElement('div');
-    newHtml.innerHTML = renderCheckInCard(s.item || {
-      habit_id:             habitId,
-      habit_name:           card.querySelector('p')?.textContent?.trim() || '',
-      schedule_type:        s.item?.schedule_type || '',
-      schedule_days:        s.item?.schedule_days || null,
-      positive_or_negative: 'positive',
-      log,
-    });
-    card.replaceWith(newHtml.firstElementChild);
-
-    // Re-wire note textarea for the replaced card
-    const newCard  = list.querySelector(`.checkin-card[data-habit-id="${habitId}"]`);
-    const noteArea = newCard?.querySelector('.checkin-note-input');
-    if (noteArea) {
-      let timer;
-      noteArea.addEventListener('input', () => {
-        clearTimeout(timer);
-        timer = setTimeout(() => saveCheckInNote(habitId, noteArea.value.trim()), 800);
+      const newHtml = document.createElement('div');
+      newHtml.innerHTML = renderCheckInCard(s.item || {
+        habit_id:             habitId,
+        habit_name:           card.querySelector('p')?.textContent?.trim() || '',
+        schedule_type:        s.item?.schedule_type || '',
+        schedule_days:        s.item?.schedule_days || null,
+        positive_or_negative: 'positive',
+        log,
       });
+      card.replaceWith(newHtml.firstElementChild);
+
+      // Re-wire note textarea for the replaced card
+      const newCard  = list.querySelector(`.checkin-card[data-habit-id="${habitId}"]`);
+      const noteArea = newCard?.querySelector('.checkin-note-input');
+      if (noteArea) {
+        let timer;
+        noteArea.addEventListener('input', () => {
+          clearTimeout(timer);
+          timer = setTimeout(() => saveCheckInNote(habitId, noteArea.value.trim()), 800);
+        });
+      }
     }
   } catch {
     showToast('Could not save check-in — try again.', 'error');
@@ -879,11 +1111,11 @@ function resetForm() {
   });
   document.getElementById('prompt-context-banner').classList.add('hidden');
 
-  // Reset smart prompts button
+  // Reset smart prompts button label (no disabled state — available immediately)
   const smartBtn = document.getElementById('btn-smart-prompts');
   if (smartBtn) {
-    smartBtn.disabled    = true;
-    smartBtn.textContent = '✦ Generate smart prompts';
+    smartBtn.disabled    = false;
+    smartBtn.textContent = '✦ Refine with what I\'ve written';
   }
 
   resetCheckIns();
@@ -1434,6 +1666,194 @@ function initOnboarding() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// GOALS VIEW
+// ═══════════════════════════════════════════════════════════════════════════
+
+let goalsFilterStatus = 'active';
+
+function showGoals() {
+  showView('goals');
+  loadGoals(goalsFilterStatus);
+}
+
+async function loadGoals(status = 'active') {
+  goalsFilterStatus = status;
+
+  const loading = document.getElementById('goals-loading');
+  const empty   = document.getElementById('goals-empty');
+  const list    = document.getElementById('goals-list');
+
+  loading.classList.remove('hidden');
+  empty.classList.add('hidden');
+  list.classList.add('hidden');
+  list.innerHTML = '';
+
+  // Update filter tab styles
+  document.querySelectorAll('.goals-filter-tab').forEach(tab => {
+    const isActive = tab.dataset.status === status;
+    tab.classList.toggle('bg-white', isActive);
+    tab.classList.toggle('text-stone-800', isActive);
+    tab.classList.toggle('shadow-sm', isActive);
+    tab.classList.toggle('text-stone-500', !isActive);
+  });
+
+  try {
+    const goals = await api.getGoals(status);
+    if (!goals) return;
+
+    loading.classList.add('hidden');
+
+    if (goals.length === 0) {
+      empty.classList.remove('hidden');
+      return;
+    }
+
+    list.innerHTML = goals.map(g => renderGoalViewCard(g)).join('');
+    list.classList.remove('hidden');
+  } catch (err) {
+    loading.classList.add('hidden');
+    showToast(err.message, 'error');
+  }
+}
+
+function renderGoalViewCard(g) {
+  const statusBadge = g.status && g.status !== 'active'
+    ? `<span class="text-[11px] font-medium text-stone-400 capitalize">${g.status}</span>`
+    : '';
+
+  const cadenceLabel = g.cadence_per_week
+    ? `<span class="text-[11px] text-stone-400">${g.cadence_per_week}× / week</span>`
+    : '';
+
+  const endLabel = g.end_date
+    ? `<span class="text-[11px] text-stone-400">Ends ${g.end_date}</span>`
+    : '';
+
+  const categoryLabel = (g.category || '').replace(/_/g, ' ');
+
+  return `
+    <div class="goal-view-card bg-white rounded-xl border border-stone-200 px-4 py-4 shadow-sm" data-goal-id="${g.id}">
+      <div class="flex items-start justify-between gap-2 mb-1">
+        <div>
+          <span class="text-[11px] font-semibold text-stone-400 uppercase tracking-[0.07em]">${escapeHtml(categoryLabel)}</span>
+          <p class="text-[15px] font-semibold text-stone-800 mt-0.5">${escapeHtml(g.title)}</p>
+        </div>
+        ${statusBadge}
+      </div>
+      <p class="text-[13px] text-stone-500 leading-relaxed mt-1 mb-3">${escapeHtml(g.why_it_matters)}</p>
+      <div class="flex items-center gap-3 flex-wrap">
+        ${cadenceLabel}
+        ${endLabel}
+        <div class="flex-1"></div>
+        ${g.status === 'active' ? `
+          <button type="button" class="goal-edit-btn text-[12px] font-medium text-stone-400 hover:text-stone-700 transition-colors" data-goal-id="${g.id}">Edit</button>
+          <button type="button" class="goal-archive-btn text-[12px] font-medium text-stone-300 hover:text-red-500 transition-colors" data-goal-id="${g.id}">Archive</button>
+        ` : `
+          <button type="button" class="goal-restore-btn text-[12px] font-medium text-stone-400 hover:text-stone-700 transition-colors" data-goal-id="${g.id}">Restore</button>
+        `}
+      </div>
+    </div>`;
+}
+
+function showGoalForm(goal = null) {
+  const container = document.getElementById('goal-form-container');
+  const titleEl   = document.getElementById('goal-form-title');
+  const form      = document.getElementById('goal-form');
+
+  titleEl.textContent = goal ? 'Edit Goal' : 'New Goal';
+  document.getElementById('goal-form-id').value = goal?.id || '';
+  document.getElementById('gf-title').value     = goal?.title || '';
+  document.getElementById('gf-category').value  = goal?.category || 'career';
+  document.getElementById('gf-timeframe').value = goal?.target_timeframe || '3_months';
+  document.getElementById('gf-why').value       = goal?.why_it_matters || '';
+  document.getElementById('gf-success').value   = goal?.success_definition || '';
+  document.getElementById('gf-cadence').value   = goal?.cadence_per_week || '';
+  document.getElementById('gf-duration').value  = goal?.duration_weeks || '';
+  document.getElementById('goal-form-error').classList.add('hidden');
+
+  container.classList.remove('hidden');
+  document.getElementById('gf-title').focus();
+  container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function hideGoalForm() {
+  document.getElementById('goal-form-container').classList.add('hidden');
+  document.getElementById('goal-form').reset();
+}
+
+async function handleGoalFormSubmit(e) {
+  e.preventDefault();
+
+  const id      = document.getElementById('goal-form-id').value;
+  const errEl   = document.getElementById('goal-form-error');
+  const btn     = document.getElementById('btn-submit-goal');
+
+  const title   = document.getElementById('gf-title').value.trim();
+  const why     = document.getElementById('gf-why').value.trim();
+  const success = document.getElementById('gf-success').value.trim();
+
+  if (!title)   { errEl.textContent = 'Title is required.';              errEl.classList.remove('hidden'); return; }
+  if (!why)     { errEl.textContent = 'Why it matters is required.';     errEl.classList.remove('hidden'); return; }
+  if (!success) { errEl.textContent = 'Success definition is required.'; errEl.classList.remove('hidden'); return; }
+
+  errEl.classList.add('hidden');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
+  const cadenceVal  = parseInt(document.getElementById('gf-cadence').value, 10);
+  const durationVal = parseInt(document.getElementById('gf-duration').value, 10);
+
+  const payload = {
+    category:           document.getElementById('gf-category').value,
+    title,
+    why_it_matters:     why,
+    success_definition: success,
+    target_timeframe:   document.getElementById('gf-timeframe').value,
+    cadence_per_week:   isNaN(cadenceVal)  ? null : cadenceVal,
+    duration_weeks:     isNaN(durationVal) ? null : durationVal,
+  };
+
+  try {
+    if (id) {
+      await api.updateGoal(id, payload);
+      showToast('Goal updated.');
+    } else {
+      await api.createGoal(payload);
+      showToast('Goal created!');
+    }
+    hideGoalForm();
+    loadGoals(goalsFilterStatus);
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save Goal';
+  }
+}
+
+async function handleGoalArchive(goalId) {
+  if (!confirm('Archive this goal? You can restore it later from the Archived tab.')) return;
+  try {
+    await api.updateGoal(goalId, { status: 'archived' });
+    showToast('Goal archived.');
+    loadGoals(goalsFilterStatus);
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function handleGoalRestore(goalId) {
+  try {
+    await api.updateGoal(goalId, { status: 'active' });
+    showToast('Goal restored.');
+    loadGoals(goalsFilterStatus);
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // KEYBOARD SHORTCUTS
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1457,38 +1877,79 @@ function init() {
   document.getElementById('auth-tab-register').addEventListener('click', () => setAuthMode('register'));
   document.getElementById('btn-sign-out').addEventListener('click', signOut);
 
-  // ── App ──
+  // ── App navigation ──
   document.getElementById('btn-new-entry').addEventListener('click', showNewEntry);
+  document.getElementById('btn-goals').addEventListener('click', showGoals);
   document.getElementById('btn-back-from-form').addEventListener('click', showDashboard);
   document.getElementById('btn-back-from-detail').addEventListener('click', showDashboard);
+  document.getElementById('btn-back-from-goals').addEventListener('click', showDashboard);
   document.getElementById('btn-cancel-form').addEventListener('click', showDashboard);
   document.getElementById('btn-first-entry').addEventListener('click', showNewEntry);
   document.getElementById('btn-retry').addEventListener('click', loadEntries);
   document.getElementById('delete-entry-btn').addEventListener('click', handleDelete);
   document.getElementById('entry-form').addEventListener('submit', handleFormSubmit);
 
+  // ── Dashboard ──
+  document.getElementById('btn-manage-goals').addEventListener('click', showGoals);
+
+  // Dashboard prompt cards — "Start reflecting →" opens new entry with that prompt as context hint
+  document.getElementById('dashboard-prompts-list').addEventListener('click', e => {
+    const btn = e.target.closest('.dashboard-prompt-btn');
+    if (!btn) return;
+    showNewEntry();
+  });
+
+  // Dashboard commitments check-in buttons
+  document.getElementById('dashboard-commitments-list').addEventListener('click', e => {
+    const yesBtn = e.target.closest('.checkin-yes-btn');
+    const noBtn  = e.target.closest('.checkin-no-btn');
+    if (yesBtn) handleCheckIn(yesBtn.dataset.habitId, true);
+    if (noBtn)  handleCheckIn(noBtn.dataset.habitId,  false);
+  });
+
   initMoodSelector();
   initEnergySlider();
   initKeyboard();
   initOnboarding();
 
-  // Smart prompts — enable button once the user has written enough
-  const contentArea = document.getElementById('content');
-  const smartBtn    = document.getElementById('btn-smart-prompts');
-  const smartHint = smartBtn.nextElementSibling;
-  contentArea.addEventListener('input', () => {
-    const ready = contentArea.value.trim().length >= 10;
-    smartBtn.disabled = !ready;
-    if (smartHint) smartHint.classList.toggle('invisible', ready);
-  });
-  smartBtn.addEventListener('click', handleSmartPrompts);
+  // Smart prompts button — always enabled, content-aware refinement
+  document.getElementById('btn-smart-prompts').addEventListener('click', handleSmartPrompts);
 
-  // Goal Check-In — delegated click handler for Yes / Not today buttons
+  // Goal Check-In in new entry view — delegated click handler
   document.getElementById('checkin-list').addEventListener('click', e => {
     const yesBtn = e.target.closest('.checkin-yes-btn');
     const noBtn  = e.target.closest('.checkin-no-btn');
     if (yesBtn) handleCheckIn(yesBtn.dataset.habitId, true);
     if (noBtn)  handleCheckIn(noBtn.dataset.habitId,  false);
+  });
+
+  // ── Goals view ──
+  document.getElementById('btn-create-goal').addEventListener('click', () => showGoalForm(null));
+  document.getElementById('btn-create-goal-empty').addEventListener('click', () => showGoalForm(null));
+  document.getElementById('btn-cancel-goal-form').addEventListener('click', hideGoalForm);
+  document.getElementById('goal-form').addEventListener('submit', handleGoalFormSubmit);
+
+  // Goals filter tabs
+  document.querySelectorAll('.goals-filter-tab').forEach(tab => {
+    tab.addEventListener('click', () => loadGoals(tab.dataset.status));
+  });
+
+  // Goals list delegated actions
+  document.getElementById('goals-list').addEventListener('click', e => {
+    const editBtn    = e.target.closest('.goal-edit-btn');
+    const archiveBtn = e.target.closest('.goal-archive-btn');
+    const restoreBtn = e.target.closest('.goal-restore-btn');
+
+    if (editBtn) {
+      // Find the goal data from rendered card's goal-id
+      const goalId = editBtn.dataset.goalId;
+      api.getGoals(goalsFilterStatus).then(goals => {
+        const g = (goals || []).find(g => g.id === goalId);
+        if (g) showGoalForm(g);
+      }).catch(() => {});
+    }
+    if (archiveBtn) handleGoalArchive(archiveBtn.dataset.goalId);
+    if (restoreBtn) handleGoalRestore(restoreBtn.dataset.goalId);
   });
 
   // Check for a stored token and validate it; show auth screen if none/expired.

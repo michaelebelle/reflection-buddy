@@ -126,7 +126,13 @@ class GoalResponse(BaseModel):
     why_it_matters:     str
     success_definition: str
     target_timeframe:   str
+    status:             Optional[str] = "active"
+    cadence_per_week:   Optional[int] = None
+    schedule_days:      Optional[str] = None
+    duration_weeks:     Optional[int] = None
+    end_date:           Optional[str] = None
     created_at:         datetime
+    updated_at:         Optional[datetime] = None
     model_config = {"from_attributes": True}
 
 

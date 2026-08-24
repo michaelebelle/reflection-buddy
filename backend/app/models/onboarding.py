@@ -44,7 +44,7 @@ class UserOnboarding(Base):
 
 
 class UserGoal(Base):
-    """Active goals — up to 3 per user.  Compared against journal entries by AI."""
+    """Active goals — managed via onboarding and the dedicated Goals view."""
 
     __tablename__ = "user_goals"
 
@@ -55,7 +55,18 @@ class UserGoal(Base):
     why_it_matters     = Column(Text, nullable=False)
     success_definition = Column(Text, nullable=False)
     target_timeframe   = Column(String(50), nullable=False)  # 1_month | 3_months | …
+
+    # Lifecycle — added via startup migration; nullable for backward compat.
+    status = Column(String(20), nullable=True)  # 'active' | 'archived' | 'completed'
+
+    # Scheduling — how often and for how long.
+    cadence_per_week = Column(Integer, nullable=True)   # e.g. 4 = "4x per week"
+    schedule_days    = Column(String(20), nullable=True) # comma-sep weekdays 0=Mon..6=Sun
+    duration_weeks   = Column(Integer, nullable=True)    # e.g. 12 = 12-week goal
+    end_date         = Column(String(10), nullable=True) # YYYY-MM-DD computed or user-set
+
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=_utcnow)
 
 
 class UserStressor(Base):

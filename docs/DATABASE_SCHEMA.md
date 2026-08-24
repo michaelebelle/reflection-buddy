@@ -1,5 +1,5 @@
 # DATABASE_SCHEMA.md
-> Last updated: 2026-08-23 — verified against actual SQLAlchemy models
+> Last updated: 2026-08-24 — verified against actual SQLAlchemy models
 
 ---
 
@@ -24,6 +24,7 @@
 | `backend/app/models/journal.py` | `journal_entries` |
 | `backend/app/models/onboarding.py` | `user_onboarding`, `user_goals`, `user_stressors`, `user_habits` |
 | `backend/app/models/checkin.py` | `habit_logs` |
+| `backend/app/schemas/goals.py` | Request/response schemas for the Goals router (separate from onboarding schemas) |
 
 ---
 
@@ -118,7 +119,7 @@ users
 
 ## Table: `user_goals`
 
-**Purpose:** Active user goals (1–3 per user). Structured for LLM comparison against journal entries.
+**Purpose:** Goals — created via onboarding OR the standalone Goals view. Structured for LLM context, progress tracking, and goal management.
 
 | Column | Type | Nullable | Description |
 |---|---|---|---|
@@ -129,10 +130,19 @@ users
 | why_it_matters | TEXT | NOT NULL | User's stated motivation |
 | success_definition | TEXT | NOT NULL | How user defines achievement |
 | target_timeframe | VARCHAR(50) | NOT NULL | 1_month, 3_months, 6_months, 1_year, ongoing |
+| status | VARCHAR(20) | YES | active, archived, completed — NULL treated as active; added via startup migration |
+| cadence_per_week | INTEGER | YES | How many times per week the user targets (e.g. 4). Used in weekly progress %. |
+| schedule_days | VARCHAR(20) | YES | Comma-separated weekdays 0=Mon..6=Sun (e.g. "0,2,4,5") — goal-level scheduling hint |
+| duration_weeks | INTEGER | YES | Goal duration in weeks (1–104). Used to compute end_date if not explicitly set. |
+| end_date | VARCHAR(10) | YES | ISO date YYYY-MM-DD — explicit or computed from duration_weeks + creation date |
 | created_at | DATETIME(tz) | NOT NULL | Row creation time |
+| updated_at | DATETIME(tz) | YES | Auto-updated via `onupdate=_utcnow`; NULL until first PUT |
 
 **Indexes:** `user_id`
-**Notes:** POST /onboarding deletes and replaces all rows for the user (full replace semantics)
+**Notes:**
+- POST /onboarding deletes and replaces all rows for the user (full replace semantics); standalone POST /goals appends new rows without replacing existing ones
+- All new columns (status through updated_at) are nullable — added via `_run_column_migrations()` for backward compatibility with onboarding-created rows
+- Goals without linked habits show 0/N in weekly progress (honest, not inflated)
 
 ---
 
@@ -172,7 +182,7 @@ users
 | created_at | DATETIME(tz) | NOT NULL | Row creation time |
 
 **Indexes:** `user_id`, `goal_id`
-**Notes:** `schedule_type` and `schedule_days` were added via `_run_column_migrations()` as nullable columns on 2026-08-23. The `goal_id` FK column exists in the DB but no application logic uses it yet.
+**Notes:** `schedule_type`, `schedule_days`, and `goal_id` were added via `_run_column_migrations()` as nullable columns on 2026-08-23. `goal_id` is now used by `get_goals_progress()` in `services/goals.py` — habits linked to a goal are counted in weekly habit_log completions. The UI does not yet surface a way to link habits to goals when creating/editing them (next task).
 
 ---
 
@@ -187,6 +197,7 @@ users
 | Added `user_onboarding`, `user_goals`, `user_stressors`, `user_habits` | `create_all()` (models imported in `main.py`) | `models/onboarding.py` |
 | Added `schedule_type`, `schedule_days`, `goal_id` to `user_habits` | `_run_column_migrations()` idempotent ALTER | `main.py` |
 | Added `habit_logs` table | `create_all()` (model imported in `main.py`) | `models/checkin.py` |
+| Added `status`, `cadence_per_week`, `schedule_days`, `duration_weeks`, `end_date`, `updated_at` to `user_goals` | `_run_column_migrations()` idempotent ALTER | `main.py` |
 
 **Migration approach:** No Alembic. All migrations run at startup via `_run_column_migrations()`. Idempotent — safe to run on every cold start. Fine for single-instance deployment; replace with Alembic before horizontal scaling.
 

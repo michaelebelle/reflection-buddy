@@ -343,3 +343,92 @@ def generate_smart_prompts(
         logger.exception("Smart prompt generation failed — using defaults")
 
     return _DEFAULT_PROMPTS[:question_count]
+
+
+# ── Dashboard proactive prompts ─────────────────────────────────────────────
+
+_DASHBOARD_DEFAULT_PROMPTS = [
+    "What's been on your mind lately that you haven't fully processed yet?",
+    "How are you feeling about the progress you're making toward your goals?",
+    "What would make today feel meaningful?",
+]
+
+DASHBOARD_SYSTEM_PROMPT = """You are Reflection Buddy — a warm, direct journaling companion \
+who knows this person well from their journal history and goals.
+
+Your job: generate {count} short, conversational prompts for today's dashboard.
+These are NOT traditional journal questions — they should feel like a thoughtful \
+friend checking in: "You mentioned X last time — how's that going?" or \
+"You said Y is your priority — have you made progress this week?"
+
+Guidelines:
+- Reference specific details from their recent entries or goals (not generic life-coaching)
+- Mention goals or recurring themes by name when relevant
+- Max 1-2 sentences each — short, direct, personal
+- Vary tone: one emotional, one goal-related, one forward-looking
+- Do NOT ask "How are you feeling today?" — we have a mood selector for that
+- If they have active goals, at least one prompt should reference a goal
+
+Respond with ONLY a valid JSON array of exactly {count} strings:
+["Prompt 1", "Prompt 2", "Prompt 3"]
+No extra text, no markdown."""
+
+
+def generate_dashboard_prompts(
+    recent_entries: list,
+    onboarding_context: str = "",
+    question_count: int = 3,
+) -> list[str]:
+    """Generate 2-3 personalized dashboard prompts from recent entries + goals.
+
+    Cheaper than smart prompts: no semantic search, just the last few entries
+    plus the user's onboarding profile.
+    """
+    if not settings.anthropic_api_key:
+        return _DASHBOARD_DEFAULT_PROMPTS[:question_count]
+
+    try:
+        parts: list[str] = []
+
+        if onboarding_context:
+            parts.append("=== User profile ===")
+            parts.append(onboarding_context)
+            parts.append("")
+
+        if recent_entries:
+            parts.append(f"=== Last {len(recent_entries)} journal {'entry' if len(recent_entries) == 1 else 'entries'} ===")
+            for entry in recent_entries:
+                date_str = entry.created_at.strftime("%b %d") if hasattr(entry.created_at, "strftime") else str(entry.created_at)[:10]
+                mood_str = f" [{entry.mood}]" if entry.mood else ""
+                parts.append(f"--- {date_str}{mood_str} ---")
+                parts.append(entry.content[:300] + ("..." if len(entry.content) > 300 else ""))
+                parts.append("")
+        else:
+            parts.append("=== No journal entries yet ===")
+            parts.append("This person is just getting started.")
+            parts.append("")
+
+        parts.append(f"Generate {question_count} proactive dashboard prompts.")
+        user_message = "\n".join(parts)
+
+        import anthropic
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        system = DASHBOARD_SYSTEM_PROMPT.format(count=question_count)
+
+        message = client.messages.create(
+            model=prompt_generator.MODEL,
+            max_tokens=400,
+            system=system,
+            messages=[{"role": "user", "content": user_message}],
+        )
+
+        for block in message.content:
+            if block.type == "text":
+                questions = prompt_generator._parse_questions(block.text)
+                if questions:
+                    return questions[:question_count]
+
+    except Exception:
+        logger.exception("Dashboard prompt generation failed — using defaults")
+
+    return _DASHBOARD_DEFAULT_PROMPTS[:question_count]

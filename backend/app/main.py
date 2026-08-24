@@ -14,6 +14,7 @@ from app.routers import journal
 from app.routers import auth
 from app.routers import onboarding
 from app.routers import checkin
+from app.routers import goals
 from app.services.embeddings import embedding_service
 
 # Mirror the dimension constant so the migration SQL stays in sync with the service
@@ -75,6 +76,25 @@ def _run_column_migrations() -> None:
             if col not in habit_existing:
                 conn.execute(text(f"ALTER TABLE user_habits ADD COLUMN {col} {col_type}"))
 
+    # ── user_goals — lifecycle and scheduling columns ─────────────────────
+    try:
+        goal_existing = {c["name"] for c in insp.get_columns("user_goals")}
+    except Exception:
+        goal_existing = set()
+
+    goal_new_cols = [
+        ("status",           "VARCHAR(20)"),
+        ("cadence_per_week", "INTEGER"),
+        ("schedule_days",    "VARCHAR(20)"),
+        ("duration_weeks",   "INTEGER"),
+        ("end_date",         "VARCHAR(10)"),
+        ("updated_at",       "TIMESTAMP"),
+    ]
+    with engine.begin() as conn:
+        for col, col_type in goal_new_cols:
+            if col not in goal_existing:
+                conn.execute(text(f"ALTER TABLE user_goals ADD COLUMN {col} {col_type}"))
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -106,6 +126,7 @@ app.include_router(auth.router,        prefix="/api/v1")
 app.include_router(journal.router,     prefix="/api/v1")
 app.include_router(onboarding.router,  prefix="/api/v1")
 app.include_router(checkin.router,     prefix="/api/v1")
+app.include_router(goals.router,       prefix="/api/v1")
 
 
 @app.get("/health", tags=["meta"])

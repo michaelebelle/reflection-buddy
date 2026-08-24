@@ -63,6 +63,19 @@ def get_smart_prompts(
     return journal_service.get_smart_prompts(db, user_id=current_user.id, content=body.content)
 
 
+@router.get("/prompts/dashboard")
+def get_dashboard_prompts(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return 2-3 proactive prompts for the dashboard home page.
+
+    Registered before /prompts and /{entry_id} to avoid routing conflicts.
+    Uses recent entries + onboarding context; no semantic search for speed.
+    """
+    return journal_service.get_dashboard_prompts(db, user_id=current_user.id)
+
+
 @router.get("/prompts", response_model=PromptResponse)
 def get_reflection_prompts(
     db: Session = Depends(get_db),

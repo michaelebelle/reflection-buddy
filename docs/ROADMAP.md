@@ -1,5 +1,5 @@
 # ROADMAP.md
-> Last updated: 2026-08-23
+> Last updated: 2026-08-24
 
 ---
 
@@ -65,8 +65,23 @@
 | GET /check-ins/today (with optional ?date= param) | ✅ Done | Accepts browser local date to avoid timezone skew |
 | POST /check-ins (idempotent upsert) | ✅ Done | Safe to call multiple times for same habit+date |
 | PUT /check-ins/{id} (partial update) | ✅ Done | Update completed flag and/or note |
-| Goal Check-In UI section (below journal form) | ✅ Done | Shows only today's due habits; Yes/Not today + optional notes |
+| Goal Check-In section on dashboard + new entry form | ✅ Done | Dashboard caches check-in data; reused when opening New Entry same day |
 | Per-user isolation on check-ins | ✅ Done | All queries filtered by user_id; habit ownership verified on POST |
+
+### Phase 4 — Goal Tracking ✅ (Core)
+
+| Feature | Status | Notes |
+|---|---|---|
+| Goal status lifecycle (active / archived / completed) | ✅ Done | `status` column on `user_goals`; PUT /goals/{id} |
+| Goal scheduling fields (cadence, duration, end_date) | ✅ Done | All nullable; `end_date` computed from `duration_weeks` if not set explicitly |
+| GET /goals — list with status filter | ✅ Done | Default excludes archived; pass `?status=archived` to see archived |
+| POST /goals — create standalone goal | ✅ Done | Separate from onboarding; sets status=active, computes end_date |
+| PUT /goals/{id} — PATCH semantics (only supplied fields updated) | ✅ Done | Preserves historical check-in data regardless of edits |
+| GET /goals/progress — weekly deterministic progress | ✅ Done | Counts habit_logs for habits linked via goal_id FK; no LLM |
+| Goals view in frontend | ✅ Done | Header nav → Goals; filter tabs; goal cards; inline create/edit form |
+| Dashboard goal progress section | ✅ Done | Progress bars per active goal; Manage → link to Goals view |
+| Proactive dashboard prompts (GET /entries/prompts/dashboard) | ✅ Done | 2-3 AI prompts on dashboard load; no semantic search; graceful default fallback |
+| Smart prompt button always enabled | ✅ Done | Renamed "✦ Refine with what I've written"; no longer requires 10+ chars before enabling |
 
 ---
 
@@ -78,6 +93,12 @@
 |---|---|---|
 | Search UI in frontend | 🔧 In Progress | Endpoint exists (`GET /entries/search`), no frontend component yet |
 | Re-embed existing entries (backfill) | 🔧 In Progress | No batch job or admin endpoint exists; only new/updated entries are embedded |
+
+### Phase 4 — Goal Tracking (Remaining)
+
+| Feature | Status | Notes |
+|---|---|---|
+| Goal ↔ Habit linking UI | 🔧 In Progress | `goal_id` FK on `user_habits` exists and is used in progress calculation; UI doesn't expose it yet |
 
 ---
 
@@ -103,21 +124,19 @@
 
 ---
 
-### Phase 4 — Goal Tracking
+### Phase 4 — Goal Tracking (Remaining)
 
-**Goal:** Transform from passive journal into active personal growth platform.
+**Goal:** Complete the goal system — goal↔entry linkage, analytics, AI-driven goal insights.
 
 | Feature | Status |
 |---|---|
+| Goal ↔ Habit linking UI | 🔧 In Progress — `goal_id` FK exists, needs frontend selector |
 | Link journal entries to goals | Planned |
-| Goal progress events table | Planned |
 | AI-based goal-entry alignment scoring | Planned |
-| Goal progress dashboard | Planned |
 | Goal-specific reflection prompts | Planned |
-| Goal completion workflow | Planned |
-| Goal-specific analytics | Planned |
+| Goal-specific analytics (streaks, trend, adherence over time) | Planned |
 
-*Foundation: `user_goals` table with category, title, why_it_matters, success_definition, target_timeframe already populated via onboarding.*
+*Foundation: Full CRUD, scheduling, weekly progress, and status lifecycle are all live. The gap is UI linkage between habits and goals.*
 
 ---
 

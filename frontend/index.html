@@ -46,6 +46,10 @@
       </div>
 
       <div class="flex items-center gap-3">
+        <button id="btn-goals"
+          class="text-[13px] font-medium text-stone-500 hover:text-stone-800 px-3 py-2 rounded-lg hover:bg-stone-100 transition-all duration-150">
+          Goals
+        </button>
         <button id="btn-new-entry"
           class="inline-flex items-center gap-1 bg-stone-900 text-white text-[13px] font-medium px-3.5 py-2 rounded-lg hover:bg-stone-700 active:scale-95 transition-all duration-150 select-none">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -266,8 +270,55 @@
     <!-- ── DASHBOARD ──────────────────────────────────────────────────── -->
     <div id="view-dashboard" class="view max-w-2xl mx-auto">
 
-      <!-- Entry count (shown when entries exist) -->
-      <p id="entry-count-banner" class="hidden text-xs font-medium text-stone-400 tracking-wide mb-6 px-0.5"></p>
+      <!-- ── Section 1: Personalized reflection prompts ── -->
+      <div id="dashboard-prompts-section" class="hidden mb-8">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-[11px] font-semibold text-stone-400 uppercase tracking-[0.08em]">Worth reflecting on today</h2>
+        </div>
+        <!-- Loading -->
+        <div id="dashboard-prompts-loading" class="flex items-center gap-2 py-3 text-stone-400">
+          <div class="w-4 h-4 border-[2px] border-stone-200 border-t-stone-400 rounded-full animate-spin"></div>
+          <span class="text-[13px]">Preparing your prompts…</span>
+        </div>
+        <!-- Prompt cards -->
+        <div id="dashboard-prompts-list" class="hidden space-y-3"></div>
+      </div>
+
+      <!-- ── Section 2: Today's commitments ── -->
+      <div id="dashboard-commitments-section" class="hidden mb-8">
+        <div class="flex items-center gap-3 mb-4">
+          <h2 class="text-[11px] font-semibold text-stone-400 uppercase tracking-[0.08em] flex-1">Today's Commitments</h2>
+        </div>
+        <!-- Loading -->
+        <div id="dashboard-commitments-loading" class="flex items-center gap-2 py-3 text-stone-400">
+          <div class="w-4 h-4 border-[2px] border-stone-200 border-t-stone-400 rounded-full animate-spin"></div>
+          <span class="text-[13px]">Loading check-ins…</span>
+        </div>
+        <!-- Empty state -->
+        <div id="dashboard-commitments-empty" class="hidden py-2">
+          <p class="text-[13px] text-stone-300">Nothing scheduled for today.</p>
+        </div>
+        <!-- Check-in cards -->
+        <div id="dashboard-commitments-list" class="hidden space-y-3"></div>
+      </div>
+
+      <!-- ── Section 3: Goals progress ── -->
+      <div id="dashboard-goals-section" class="hidden mb-8">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-[11px] font-semibold text-stone-400 uppercase tracking-[0.08em]">Goals this week</h2>
+          <button id="btn-manage-goals"
+            class="text-[11px] font-medium text-stone-400 hover:text-stone-700 transition-colors">
+            Manage →
+          </button>
+        </div>
+        <div id="dashboard-goals-list" class="space-y-3"></div>
+      </div>
+
+      <!-- ── Section 4: Recent reflections ── -->
+      <div class="mb-4">
+        <!-- Entry count (shown when entries exist) -->
+        <p id="entry-count-banner" class="hidden text-[11px] font-semibold text-stone-400 uppercase tracking-[0.08em] mb-4 px-0.5"></p>
+      </div>
 
       <!-- Loading -->
       <div id="entries-loading"
@@ -372,16 +423,13 @@
 
         <!-- ── Smart Prompts ── -->
         <div class="flex items-center justify-between">
-          <button type="button" id="btn-smart-prompts" disabled
+          <button type="button" id="btn-smart-prompts"
             class="inline-flex items-center gap-1.5 text-[12px] font-medium text-stone-500
                    px-3.5 py-2 rounded-lg border border-stone-200 bg-white
                    hover:border-stone-400 hover:text-stone-800 hover:bg-stone-50
-                   active:scale-95 transition-all duration-150
-                   disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-stone-200
-                   disabled:hover:text-stone-500 disabled:hover:bg-white">
-            ✦ Generate smart prompts
+                   active:scale-95 transition-all duration-150">
+            ✦ Refine with what I've written
           </button>
-          <span class="text-[11px] text-stone-300">Write something first</span>
         </div>
 
         <!-- ── Reflection Questions (collapsible) ── -->
@@ -487,6 +535,147 @@
         <!-- Check-in cards — populated by JS -->
         <div id="checkin-list" class="hidden space-y-3"></div>
 
+      </div>
+
+    </div>
+
+    <!-- ── GOALS ────────────────────────────────────────────────────── -->
+    <div id="view-goals" class="view hidden max-w-2xl mx-auto">
+
+      <!-- Navigation row -->
+      <div class="flex items-center mb-9">
+        <button id="btn-back-from-goals"
+          class="flex items-center gap-1.5 text-[13px] font-medium text-stone-400 hover:text-stone-700 transition-colors duration-150">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+          </svg>
+          Back
+        </button>
+        <span class="flex-1 text-center text-[13px] font-semibold text-stone-600 tracking-tight">Goals</span>
+        <button id="btn-create-goal"
+          class="inline-flex items-center gap-1 bg-stone-900 text-white text-[13px] font-medium px-3.5 py-2 rounded-lg hover:bg-stone-700 active:scale-95 transition-all duration-150 select-none">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/>
+          </svg>
+          Add Goal
+        </button>
+      </div>
+
+      <!-- Filter tabs -->
+      <div class="flex gap-1 mb-6 bg-stone-100 rounded-xl p-1">
+        <button class="goals-filter-tab flex-1 text-[12px] font-medium py-1.5 rounded-lg transition-all duration-150 active" data-status="active">Active</button>
+        <button class="goals-filter-tab flex-1 text-[12px] font-medium py-1.5 rounded-lg transition-all duration-150" data-status="completed">Completed</button>
+        <button class="goals-filter-tab flex-1 text-[12px] font-medium py-1.5 rounded-lg transition-all duration-150" data-status="archived">Archived</button>
+      </div>
+
+      <!-- Loading -->
+      <div id="goals-loading" class="flex flex-col items-center justify-center py-20 gap-4">
+        <div class="w-6 h-6 border-[2.5px] border-stone-200 border-t-stone-400 rounded-full animate-spin"></div>
+        <p class="text-sm text-stone-400">Loading your goals…</p>
+      </div>
+
+      <!-- Empty state -->
+      <div id="goals-empty" class="hidden flex-col items-center justify-center py-20 text-center">
+        <div class="text-5xl mb-5 select-none">🎯</div>
+        <h2 class="text-xl font-semibold text-stone-800 mb-2 tracking-tight">No goals here</h2>
+        <p class="text-sm text-stone-500 max-w-[260px] mx-auto mb-7 leading-relaxed">
+          Add a goal to start tracking your progress each week.
+        </p>
+        <button id="btn-create-goal-empty"
+          class="inline-flex items-center gap-1.5 bg-stone-900 text-white text-sm font-medium px-5 py-2.5 rounded-lg hover:bg-stone-700 active:scale-95 transition-all duration-150">
+          Add your first goal
+        </button>
+      </div>
+
+      <!-- Goals list -->
+      <div id="goals-list" class="hidden space-y-3"></div>
+
+      <!-- Create / Edit goal form (shown inline, hidden by default) -->
+      <div id="goal-form-container" class="hidden mt-8">
+        <div class="flex items-center gap-3 mb-5">
+          <div class="flex-1 h-px bg-stone-100"></div>
+          <span id="goal-form-title" class="text-[11px] font-semibold text-stone-400 uppercase tracking-[0.08em]">New Goal</span>
+          <div class="flex-1 h-px bg-stone-100"></div>
+        </div>
+
+        <form id="goal-form" novalidate class="space-y-5">
+          <input type="hidden" id="goal-form-id" value="" />
+
+          <div class="space-y-2">
+            <label class="block text-[11px] font-semibold text-stone-500 uppercase tracking-[0.08em]">Title</label>
+            <input type="text" id="gf-title" placeholder="What's your goal?" maxlength="200"
+              class="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 text-[15px] text-stone-800 placeholder-stone-300 shadow-sm focus:outline-none focus:ring-2 focus:ring-stone-200 focus:border-stone-300 transition-all duration-150" />
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div class="space-y-2">
+              <label class="block text-[11px] font-semibold text-stone-500 uppercase tracking-[0.08em]">Category</label>
+              <select id="gf-category"
+                class="w-full bg-white border border-stone-200 rounded-xl px-3 py-3 text-[14px] text-stone-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-stone-200 transition-all duration-150">
+                <option value="career">Career</option>
+                <option value="fitness">Fitness</option>
+                <option value="relationships">Relationships</option>
+                <option value="mental_health">Mental health</option>
+                <option value="discipline">Discipline</option>
+                <option value="finances">Finances</option>
+                <option value="school">School</option>
+                <option value="creativity">Creativity</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="space-y-2">
+              <label class="block text-[11px] font-semibold text-stone-500 uppercase tracking-[0.08em]">Timeframe</label>
+              <select id="gf-timeframe"
+                class="w-full bg-white border border-stone-200 rounded-xl px-3 py-3 text-[14px] text-stone-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-stone-200 transition-all duration-150">
+                <option value="1_month">1 month</option>
+                <option value="3_months" selected>3 months</option>
+                <option value="6_months">6 months</option>
+                <option value="1_year">1 year</option>
+                <option value="ongoing">Ongoing</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <label class="block text-[11px] font-semibold text-stone-500 uppercase tracking-[0.08em]">Why it matters</label>
+            <textarea id="gf-why" rows="2" placeholder="What's the deeper reason behind this goal?"
+              class="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 text-[14px] text-stone-800 placeholder-stone-300 resize-none shadow-sm focus:outline-none focus:ring-2 focus:ring-stone-200 transition-all duration-150"></textarea>
+          </div>
+
+          <div class="space-y-2">
+            <label class="block text-[11px] font-semibold text-stone-500 uppercase tracking-[0.08em]">What success looks like</label>
+            <textarea id="gf-success" rows="2" placeholder="How will you know you've achieved this?"
+              class="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 text-[14px] text-stone-800 placeholder-stone-300 resize-none shadow-sm focus:outline-none focus:ring-2 focus:ring-stone-200 transition-all duration-150"></textarea>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div class="space-y-2">
+              <label class="block text-[11px] font-semibold text-stone-500 uppercase tracking-[0.08em]">Weekly target <span class="normal-case font-normal text-stone-300">(optional)</span></label>
+              <input type="number" id="gf-cadence" placeholder="e.g. 4" min="1" max="21"
+                class="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 text-[14px] text-stone-800 placeholder-stone-300 shadow-sm focus:outline-none focus:ring-2 focus:ring-stone-200 transition-all duration-150" />
+            </div>
+            <div class="space-y-2">
+              <label class="block text-[11px] font-semibold text-stone-500 uppercase tracking-[0.08em]">Duration (weeks) <span class="normal-case font-normal text-stone-300">(optional)</span></label>
+              <input type="number" id="gf-duration" placeholder="e.g. 12" min="1" max="104"
+                class="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 text-[14px] text-stone-800 placeholder-stone-300 shadow-sm focus:outline-none focus:ring-2 focus:ring-stone-200 transition-all duration-150" />
+            </div>
+          </div>
+
+          <div id="goal-form-error"
+            class="hidden bg-red-50 border border-red-100 rounded-lg px-4 py-3 text-sm text-red-600 leading-relaxed">
+          </div>
+
+          <div class="flex items-center justify-end gap-3">
+            <button type="button" id="btn-cancel-goal-form"
+              class="text-[13px] font-medium text-stone-400 hover:text-stone-700 px-4 py-2 rounded-lg hover:bg-stone-100 transition-all duration-150">
+              Cancel
+            </button>
+            <button type="submit" id="btn-submit-goal"
+              class="inline-flex items-center gap-2 bg-stone-900 text-white text-[13px] font-medium px-5 py-2.5 rounded-lg hover:bg-stone-700 active:scale-95 transition-all duration-150 disabled:opacity-40">
+              Save Goal
+            </button>
+          </div>
+        </form>
       </div>
 
     </div>
