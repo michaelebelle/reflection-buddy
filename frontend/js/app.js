@@ -291,6 +291,20 @@ const api = {
     if (!res.ok) throw new Error(`Could not load goal progress (${res.status})`);
     return res.json();
   },
+
+  async setGoalHabits(goalId, habitIds) {
+    const res = await fetch(`${API_BASE}/goals/${goalId}/habits`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ habit_ids: habitIds }),
+    });
+    if (res.status === 401) { handleUnauthorized(); return null; }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Could not update habit links (${res.status})`);
+    }
+    return res.json();
+  },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1755,10 +1769,9 @@ function renderGoalViewCard(g) {
     </div>`;
 }
 
-function showGoalForm(goal = null) {
+async function showGoalForm(goal = null) {
   const container = document.getElementById('goal-form-container');
   const titleEl   = document.getElementById('goal-form-title');
-  const form      = document.getElementById('goal-form');
 
   titleEl.textContent = goal ? 'Edit Goal' : 'New Goal';
   document.getElementById('goal-form-id').value = goal?.id || '';
@@ -1770,6 +1783,31 @@ function showGoalForm(goal = null) {
   document.getElementById('gf-cadence').value   = goal?.cadence_per_week || '';
   document.getElementById('gf-duration').value  = goal?.duration_weeks || '';
   document.getElementById('goal-form-error').classList.add('hidden');
+
+  // Load habits for the linking checkboxes
+  const habitsSection = document.getElementById('gf-habits-section');
+  const habitsList    = document.getElementById('gf-habits-list');
+  if (habitsSection && habitsList) {
+    habitsList.innerHTML = '<p class="text-[12px] text-stone-400">Loading habits…</p>';
+    habitsSection.classList.remove('hidden');
+    try {
+      const ob = await api.getOnboarding();
+      const habits = ob?.habits || [];
+      if (habits.length === 0) {
+        habitsSection.classList.add('hidden');
+      } else {
+        habitsList.innerHTML = habits.map(h => `
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" name="gf-habit-link" value="${h.id}"
+              ${h.goal_id === (goal?.id || '') ? 'checked' : ''}
+              class="accent-stone-900 w-4 h-4" />
+            <span class="text-[13px] text-stone-700">${escapeHtml(h.name)}</span>
+          </label>`).join('');
+      }
+    } catch {
+      habitsSection.classList.add('hidden');
+    }
+  }
 
   container.classList.remove('hidden');
   document.getElementById('gf-title').focus();
@@ -1814,13 +1852,22 @@ async function handleGoalFormSubmit(e) {
   };
 
   try {
+    let savedGoal;
     if (id) {
-      await api.updateGoal(id, payload);
+      savedGoal = await api.updateGoal(id, payload);
       showToast('Goal updated.');
     } else {
-      await api.createGoal(payload);
+      savedGoal = await api.createGoal(payload);
       showToast('Goal created!');
     }
+
+    // Link selected habits to this goal
+    if (savedGoal?.id) {
+      const checkedBoxes = document.querySelectorAll('[name=gf-habit-link]:checked');
+      const habitIds = [...checkedBoxes].map(cb => cb.value);
+      await api.setGoalHabits(savedGoal.id, habitIds).catch(() => {});
+    }
+
     hideGoalForm();
     loadGoals(goalsFilterStatus);
   } catch (err) {

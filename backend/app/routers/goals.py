@@ -8,6 +8,7 @@ from app.schemas.goals import (
     GoalCreateRequest,
     GoalUpdateRequest,
     GoalProgressResponse,
+    SetGoalHabitsRequest,
 )
 from app.services import goals as goals_service
 from app.services.auth import get_current_user
@@ -55,6 +56,25 @@ def get_goal(
     if not goal:
         raise HTTPException(status_code=404, detail="Goal not found")
     return goal
+
+
+@router.put("/{goal_id}/habits")
+def set_goal_habits(
+    goal_id:      str,
+    data:         SetGoalHabitsRequest,
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+):
+    """Set the habits linked to a goal.
+
+    Replaces the current set — habits in the list get goal_id set, habits
+    previously linked but not in the list get goal_id cleared.
+    Returns the updated list of linked habits.
+    """
+    linked = goals_service.set_goal_habits(
+        db, goal_id=goal_id, user_id=current_user.id, habit_ids=data.habit_ids
+    )
+    return {"goal_id": goal_id, "linked_habits": [{"id": h.id, "name": h.name} for h in linked]}
 
 
 @router.put("/{goal_id}", response_model=GoalResponse)

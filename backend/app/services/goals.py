@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models.onboarding import UserGoal, UserHabit
 from app.models.checkin import HabitLog
-from app.schemas.goals import GoalCreateRequest, GoalUpdateRequest, GoalProgressItem, GoalProgressResponse
+from app.schemas.goals import GoalCreateRequest, GoalUpdateRequest, GoalProgressItem, GoalProgressResponse, SetGoalHabitsRequest
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,48 @@ def update_goal(
     db.commit()
     db.refresh(goal)
     return goal
+
+
+def set_goal_habits(
+    db: Session,
+    goal_id: str,
+    user_id: str,
+    habit_ids: list[str],
+) -> list[UserHabit]:
+    """Link a set of habits to a goal (set semantics).
+
+    - Habits in `habit_ids` get `goal_id` set to this goal.
+    - Habits currently linked to this goal but NOT in `habit_ids` get `goal_id` cleared.
+    - Habits owned by other users are silently ignored.
+    """
+    # Verify goal belongs to this user
+    goal = get_goal(db, goal_id, user_id)
+    if not goal:
+        return []
+
+    # Clear goal_id from habits previously linked to this goal that are now de-listed
+    clear_q = db.query(UserHabit).filter(
+        UserHabit.user_id == user_id,
+        UserHabit.goal_id == goal_id,
+    )
+    if habit_ids:
+        clear_q = clear_q.filter(UserHabit.id.notin_(habit_ids))
+    clear_q.update({"goal_id": None}, synchronize_session=False)
+
+    # Set goal_id on the newly-linked habits (only if owned by this user)
+    if habit_ids:
+        db.query(UserHabit).filter(
+            UserHabit.user_id == user_id,
+            UserHabit.id.in_(habit_ids),
+        ).update({"goal_id": goal_id}, synchronize_session=False)
+
+    db.commit()
+
+    return (
+        db.query(UserHabit)
+        .filter(UserHabit.user_id == user_id, UserHabit.goal_id == goal_id)
+        .all()
+    )
 
 
 # ── Progress ───────────────────────────────────────────────────────────────

@@ -23,6 +23,10 @@ class GoalCreateRequest(BaseModel):
     end_date:       Optional[str] = Field(None, description="YYYY-MM-DD override")
 
 
+class SetGoalHabitsRequest(BaseModel):
+    habit_ids: list[str] = Field(default_factory=list, description="IDs of habits to link to this goal")
+
+
 class GoalUpdateRequest(BaseModel):
     category:           Optional[GoalCategory]      = None
     title:              Optional[str]               = Field(None, min_length=2, max_length=200)
@@ -63,6 +67,7 @@ class GoalProgressResponse(BaseModel):
 __all__ = [
     "GoalCreateRequest",
     "GoalUpdateRequest",
+    "SetGoalHabitsRequest",
     "GoalProgressItem",
     "GoalProgressResponse",
     "GoalResponse",
